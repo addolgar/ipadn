@@ -128238,6 +128238,286 @@
           }
         }
       }
+    },
+    "提升 SDK 版本": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提升 SDK 版本"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raise SDK version"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提升 SDK 版本"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SDK バージョンを引き上げる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SDK 버전 올리기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повысить версию SDK"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subir la versión del SDK"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relever la version du SDK"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SDK-Version anheben"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aumentar a versão do SDK"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفع إصدار SDK"
+          }
+        }
+      }
+    },
+    "目标 SDK": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目标 SDK"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Target SDK"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標 SDK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象 SDK"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대상 SDK"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Целевой SDK"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SDK de destino"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SDK cible"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ziel-SDK"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SDK de destino"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SDK المستهدف"
+          }
+        }
+      }
+    },
+    "版本号无效": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "版本号无效"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid version number"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "版本號無效"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効なバージョン番号"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 버전 번호"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неверный номер версии"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Número de versión no válido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Numéro de version non valide"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültige Versionsnummer"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Número de versão inválido"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رقم الإصدار غير صالح"
+          }
+        }
+      }
+    },
+    "解密时把应用记录的 iOS SDK 版本提高到目标版本，让系统不再以兼容模式运行旧应用；iPhone Duo 内屏全屏需要 27.1 或更高。只会提高不会降低，修改后的安装包须重新签名才能安装。": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解密时把应用记录的 iOS SDK 版本提高到目标版本，让系统不再以兼容模式运行旧应用；iPhone Duo 内屏全屏需要 27.1 或更高。只会提高不会降低，修改后的安装包须重新签名才能安装。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While decrypting, raises the iOS SDK version recorded in the app to the target so the system stops running older apps in compatibility mode; iPhone Duo needs 27.1 or later to fill the inner display. It only raises, never lowers, and the patched package must be re-signed before it can be installed."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解密時把 App 記錄的 iOS SDK 版本提高到目標版本，讓系統不再以相容模式執行舊 App；iPhone Duo 內螢幕全螢幕需要 27.1 或更高。只會提高不會降低，修改後的安裝包須重新簽署才能安裝。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復号時にアプリに記録された iOS SDK バージョンを対象バージョンまで引き上げ、古いアプリが互換モードで動作しないようにします。iPhone Duo の内側ディスプレイを全画面で使うには 27.1 以上が必要です。引き上げのみで引き下げは行いません。変更したパッケージはインストール前に再署名が必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복호화할 때 앱에 기록된 iOS SDK 버전을 대상 버전으로 올려 오래된 앱이 호환 모드로 실행되지 않게 합니다. iPhone Duo 내부 화면을 전체 화면으로 쓰려면 27.1 이상이 필요합니다. 올리기만 하고 낮추지는 않으며, 수정된 패키지는 설치 전에 다시 서명해야 합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При расшифровке повышает записанную в приложении версию iOS SDK до целевой, чтобы система не запускала старые приложения в режиме совместимости; для полноэкранного режима на внутреннем экране iPhone Duo нужна версия 27.1 или новее. Версия только повышается, но не понижается; изменённый пакет нужно переподписать перед установкой."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al descifrar, sube la versión del SDK de iOS registrada en la app hasta la de destino para que el sistema deje de ejecutar apps antiguas en modo de compatibilidad; el iPhone Duo necesita 27.1 o posterior para ocupar la pantalla interior. Solo sube, nunca baja, y el paquete modificado debe volver a firmarse antes de instalarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lors du déchiffrement, relève la version du SDK iOS enregistrée dans l’app jusqu’à la cible afin que le système cesse d’exécuter les anciennes apps en mode de compatibilité ; l’iPhone Duo exige 27.1 ou ultérieur pour occuper l’écran intérieur. La version est uniquement relevée, jamais abaissée, et le paquet modifié doit être re-signé avant l’installation."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hebt beim Entschlüsseln die in der App gespeicherte iOS-SDK-Version auf das Ziel an, damit ältere Apps nicht mehr im Kompatibilitätsmodus laufen; das iPhone Duo benötigt 27.1 oder neuer für den Vollbildmodus auf dem inneren Display. Die Version wird nur angehoben, nie gesenkt, und das geänderte Paket muss vor der Installation neu signiert werden."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao descriptografar, aumenta a versão do SDK do iOS registrada no app até a versão de destino para que o sistema deixe de executar apps antigos em modo de compatibilidade; o iPhone Duo precisa da 27.1 ou posterior para ocupar a tela interna. Só aumenta, nunca diminui, e o pacote modificado precisa ser assinado novamente antes da instalação."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أثناء فك التشفير، يرفع إصدار iOS SDK المسجل في التطبيق إلى الإصدار المستهدف حتى يتوقف النظام عن تشغيل التطبيقات القديمة في وضع التوافق؛ يحتاج iPhone Duo إلى 27.1 أو أحدث لملء الشاشة الداخلية. يرفع الإصدار فقط ولا يخفضه أبدًا، ويجب إعادة توقيع الحزمة المعدّلة قبل تثبيتها."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

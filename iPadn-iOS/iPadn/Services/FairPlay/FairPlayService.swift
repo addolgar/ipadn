@@ -93,6 +93,7 @@ final class FairPlayService: ObservableObject {
         }
         let logBuffer = LineBuffer()
 
+        let sdkTarget = SDKVersionPatcher.configuredTarget
         task = Task { [weak self] in
             let outcome: Result<FairPlayDecryptor.Outcome, Error> = await withCheckedContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
@@ -100,6 +101,7 @@ final class FairPlayService: ObservableObject {
                         let value = try FairPlayDecryptor.decrypt(
                             ipaURL: source,
                             allowBundleStaging: false,
+                            sdkTarget: sdkTarget,
                             isCancelled: { flag.isCancelled },
                             report: { progress in
                                 Task { @MainActor [weak self] in self?.apply(progress) }

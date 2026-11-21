@@ -127,6 +127,7 @@ enum FairPlayDecryptor {
     static func decrypt(
         ipaURL: URL,
         allowBundleStaging: Bool = false,
+        sdkTarget: UInt32? = nil,
         isCancelled: () -> Bool = { false },
         report: (FairPlayProgress) -> Void = { _ in },
         log: @escaping (FairPlayLine) -> Void
@@ -336,6 +337,16 @@ enum FairPlayDecryptor {
                                                  failed: failed, stillEncrypted: stillEncrypted))
         }
         if isCancelled() { throw Failure.cancelled }
+
+        // 4b. optional SDK raise (iPhone Duo full screen needs 27.1+); headers only
+        if let sdkTarget {
+            log(FairPlayLine(kind: .phase, text: "SDK PATCH -> \(SDKVersionPatcher.describe(sdkTarget))"))
+            let changes = SDKVersionPatcher.patchApp(at: appDir, to: sdkTarget) { line in
+                log(FairPlayLine(kind: .info, text: line))
+            }
+            log(FairPlayLine(kind: changes.isEmpty ? .info : .ok,
+                             text: "SDK raised in \(changes.count) executable(s); re-sign before installing"))
+        }
 
         // 5. repack
         report(FairPlayProgress(phase: "重新打包", fraction: 0.82, detail: "\(stem).ipa"))

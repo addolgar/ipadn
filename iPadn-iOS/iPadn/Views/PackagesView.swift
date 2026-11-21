@@ -1147,12 +1147,32 @@ struct PackagesView: View {
 
 struct DecryptOptionsView: View {
     @ObservedObject private var service = FairPlayHub.shared.service
+    @AppStorage(SDKVersionPatcher.enabledKey) private var sdkPatch = false
+    @AppStorage(SDKVersionPatcher.targetKey) private var sdkTarget = SDKVersionPatcher.defaultTarget
     var body: some View {
         Form {
             Section {
                 Toggle("下载完成后自动解密", isOn: $service.autoDecryptOnComplete)
             } footer: {
                 Text("仅在专业模式开启时生效。同一时间处理一份 IPA；已有产物或其他任务正在运行时不会自动开始，也不会排队或覆盖文件。")
+            }
+            Section {
+                Toggle("提升 SDK 版本", isOn: $sdkPatch)
+                if sdkPatch {
+                    LabeledContent("目标 SDK") {
+                        TextField(text: $sdkTarget, prompt: Text(verbatim: SDKVersionPatcher.defaultTarget)) {
+                            Text("目标 SDK")
+                        }
+                        .keyboardType(.numbersAndPunctuation)
+                        .autocorrectionDisabled()
+                        .multilineTextAlignment(.trailing)
+                    }
+                    if SDKVersionPatcher.encode(sdkTarget) == nil {
+                        Text("版本号无效").font(.footnote).foregroundStyle(.red)
+                    }
+                }
+            } footer: {
+                Text("解密时把应用记录的 iOS SDK 版本提高到目标版本，让系统不再以兼容模式运行旧应用；iPhone Duo 内屏全屏需要 27.1 或更高。只会提高不会降低，修改后的安装包须重新签名才能安装。")
             }
         }
         .toolPage()
