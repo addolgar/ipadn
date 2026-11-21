@@ -108,6 +108,12 @@ app_package = add("ZIPFoundation/App", "XCSwiftPackageProductDependency", packag
 test_package = add("ZIPFoundation/Tests", "XCSwiftPackageProductDependency", package=package, productName="ZIPFoundation")
 app_framework = add("ZIPFoundation/AppBuild", "PBXBuildFile", productRef=app_package)
 test_framework = add("ZIPFoundation/TestBuild", "PBXBuildFile", productRef=test_package)
+# On-device re-signing (MIT). Pinned to the commit Feather ships; a revision pin is
+# required because the package uses unsafeFlags.
+zsign_package = add("Zsign", "XCRemoteSwiftPackageReference", repositoryURL="https://github.com/claration/zsign.git",
+                    requirement={"kind": "revision", "revision": "c4ba9da4283031c07efa03bce42c4b8602d22e73"})
+zsign_product = add("Zsign/App", "XCSwiftPackageProductDependency", package=zsign_package, productName="Zsign")
+zsign_framework = add("Zsign/AppBuild", "PBXBuildFile", productRef=zsign_product)
 app_group = add("AppGroup", "PBXGroup", children=app_files, path="iPadn", sourceTree="<group>")
 fairplay_group = add("FairPlayGroup", "PBXGroup", children=fairplay_files, path="FairPlayCore", sourceTree="<group>")
 test_group = add("TestGroup", "PBXGroup", children=test_files, path="iPadnTests", sourceTree="<group>")
@@ -115,7 +121,7 @@ products = add("Products", "PBXGroup", children=[app_product, test_product], nam
 root_group = add("MainGroup", "PBXGroup", children=[app_group, fairplay_group, test_group, products], sourceTree="<group>")
 app_sources = add("AppSources", "PBXSourcesBuildPhase", buildActionMask="2147483647", files=sources, runOnlyForDeploymentPostprocessing="0")
 app_resources = add("AppResources", "PBXResourcesBuildPhase", buildActionMask="2147483647", files=resources, runOnlyForDeploymentPostprocessing="0")
-app_frameworks = add("AppFrameworks", "PBXFrameworksBuildPhase", buildActionMask="2147483647", files=[app_framework], runOnlyForDeploymentPostprocessing="0")
+app_frameworks = add("AppFrameworks", "PBXFrameworksBuildPhase", buildActionMask="2147483647", files=[app_framework, zsign_framework], runOnlyForDeploymentPostprocessing="0")
 runtime_manifest_files = sorted(json.loads((ROOT / "vendor/SAPRuntime/manifest.json").read_text(encoding="utf-8"))["files"])
 assemble = add("AssembleWASM", "PBXShellScriptBuildPhase", buildActionMask="2147483647", files=[],
                inputPaths=["$(SRCROOT)/scripts/assemble_runtime.py", "$(SRCROOT)/vendor/SAPRuntime"],
@@ -163,7 +169,7 @@ test_configs = configs("Tests", test_settings)
 proxy = add("TestProxy", "PBXContainerItemProxy", containerPortal=uid("Project"), proxyType="1", remoteGlobalIDString=app_id, remoteInfo="iPadn")
 dependency = add("TestDependency", "PBXTargetDependency", target=app_id, targetProxy=proxy)
 add("AppTarget", "PBXNativeTarget", buildConfigurationList=app_configs, buildPhases=[assemble, app_sources, app_frameworks, app_resources],
-    buildRules=[], dependencies=[], name="iPadn", packageProductDependencies=[app_package], productName="iPadn",
+    buildRules=[], dependencies=[], name="iPadn", packageProductDependencies=[app_package, zsign_product], productName="iPadn",
     productReference=app_product, productType="com.apple.product-type.application")
 add("TestTarget", "PBXNativeTarget", buildConfigurationList=test_configs, buildPhases=[tests_sources, tests_frameworks, tests_resources],
     buildRules=[], dependencies=[dependency], name="iPadnTests", packageProductDependencies=[test_package], productName="iPadnTests",
@@ -219,7 +225,7 @@ project_id = add("Project", "PBXProject", attributes={"BuildIndependentTargetsIn
     # while the Chinese source strings stay the keys of the string catalogs.
     buildConfigurationList=project_configs, compatibilityVersion="Xcode 14.0", developmentRegion=OPTIONS.development_language,
     hasScannedForEncodings="0", knownRegions=["zh-Hans", "en", "zh-Hant", "ja", "ko", "ru", "es", "fr", "de", "pt-BR", "ar", "Base"], mainGroup=root_group, productRefGroup=products,
-    projectDirPath="", projectRoot="", targets=[app_id, test_id, ui_id, extension_id], packageReferences=[package])
+    projectDirPath="", projectRoot="", targets=[app_id, test_id, ui_id, extension_id], packageReferences=[package, zsign_package])
 
 def render(value, indent=0):
     tab = "\t" * indent

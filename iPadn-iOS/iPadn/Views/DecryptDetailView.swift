@@ -14,6 +14,8 @@ struct DecryptDetailView: View {
     @State private var presentation: PackageFilePresentation?
     @State private var deletion: String?
     @State private var unverifiedExport: PackageFilePresentation.Kind?
+    @State private var installing = false
+    @State private var installMessage: String?
 
     private var record: DecryptRecord? { records.records.first { $0.id == recordID } }
     private var live: Bool { service.activeRecordID == recordID && service.isRunning }
@@ -221,6 +223,22 @@ struct DecryptDetailView: View {
         if style == .success || record.state == .plain {
             if exportURL(record) != nil {
                 VStack(spacing: 10) {
+                    if record.signedWith != nil, let output = ui.currentOutput(record) {
+                        Button {
+                            install(record, output: output)
+                        } label: {
+                            Text(installing ? "正在安装…" : "安装").frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(PrimaryButtonStyle())
+                        .disabled(installing || service.isRunning)
+                        .accessibilityIdentifier("detail.install")
+                        if let installMessage {
+                            Text(verbatim: installMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
                     Button {
                         export(record, kind: .save)
                     } label: {
@@ -430,6 +448,19 @@ struct DecryptDetailView: View {
     }
 
     private func sourceJob(_ record: DecryptRecord) -> DownloadJob? { ui.job(for: record, manager: manager) }
+    private func install(_ record: DecryptRecord, output: URL) {
+        installing = true
+        installMessage = nil
+        Task { @MainActor in
+            defer { installing = false }
+            do {
+                installMessage = try await SignedPackageInstaller.install(
+                    output, name: record.appName, bundleID: record.bundleID, installation: store.installation)
+            } catch {
+                installMessage = error.localizedDescription
+            }
+        }
+    }
     private func exportURL(_ record: DecryptRecord) -> URL? {
         record.state == .plain ? ui.source(for: record, manager: manager) : ui.currentOutput(record)
     }

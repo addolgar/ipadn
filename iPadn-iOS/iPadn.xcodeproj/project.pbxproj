@@ -549,6 +549,26 @@
 			isa = PBXBuildFile;
 			fileRef = 20DF3E39BC0667C304A58585;
 		};
+		7954ADB1989B75DB01FA4867 = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = "Services/Signing/AppSigner.swift";
+			sourceTree = "<group>";
+		};
+		80466271CE54FF196F339812 = {
+			isa = PBXBuildFile;
+			fileRef = 7954ADB1989B75DB01FA4867;
+		};
+		267FB1AE239CA4208A51F096 = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = "Services/Signing/SigningCertificates.swift";
+			sourceTree = "<group>";
+		};
+		5137360098E0377024F4025E = {
+			isa = PBXBuildFile;
+			fileRef = 267FB1AE239CA4208A51F096;
+		};
 		C4E202139941DE609BFBB95D = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
@@ -1008,6 +1028,16 @@
 		E68DE723119F75E73EA2FB8A = {
 			isa = PBXBuildFile;
 			fileRef = B8B5827DB7B30C5EF9E4CE8E;
+		};
+		90A34680A0720AB471765440 = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = "Views/SigningViews.swift";
+			sourceTree = "<group>";
+		};
+		C4E61D5F31932B9FB0E2B101 = {
+			isa = PBXBuildFile;
+			fileRef = 90A34680A0720AB471765440;
 		};
 		2A6123AA668AF32CCFD14F3B = {
 			isa = PBXFileReference;
@@ -1722,6 +1752,23 @@
 			isa = PBXBuildFile;
 			productRef = F7DFB174695B0A1A0FA95C8C;
 		};
+		9185957E0DACD165D33A45A9 = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/claration/zsign.git";
+			requirement = {
+				kind = revision;
+				revision = c4ba9da4283031c07efa03bce42c4b8602d22e73;
+			};
+		};
+		7B1E85966AEB65F644FFA16E = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9185957E0DACD165D33A45A9;
+			productName = Zsign;
+		};
+		578BD867D6579EBDF41612D8 = {
+			isa = PBXBuildFile;
+			productRef = 7B1E85966AEB65F644FFA16E;
+		};
 		A5660BF89DD2D657048780AB = {
 			isa = PBXGroup;
 			children = (
@@ -1778,6 +1825,8 @@
 				7A217757AC93BE1C1F3A2658,
 				31547E2843918E8C8FFD186C,
 				20DF3E39BC0667C304A58585,
+				7954ADB1989B75DB01FA4867,
+				267FB1AE239CA4208A51F096,
 				C4E202139941DE609BFBB95D,
 				F8D87A859B53A21E1B034F23,
 				38AA7D7D513266924221C9CA,
@@ -1824,6 +1873,7 @@
 				875F86E325615E997D89246A,
 				AC7ABAF3BAFCCF834C35D127,
 				B8B5827DB7B30C5EF9E4CE8E,
+				90A34680A0720AB471765440,
 				2A6123AA668AF32CCFD14F3B,
 				07B91807410A843BBA1314A5,
 				FA3C2B56B0C9C931EB4B0AA5,
@@ -1984,6 +2034,8 @@
 				26DD24F92003FD87260C4945,
 				18EF1CFA61D8BE029D93713A,
 				79C9C7B781E2036A0BD109DC,
+				80466271CE54FF196F339812,
+				5137360098E0377024F4025E,
 				4290A7A571B139F6D5141896,
 				1CB9482AF1DD7F6F686BCA53,
 				CBFEDEF39522479580B5BC1B,
@@ -2030,6 +2082,7 @@
 				9B02A284355960077990E605,
 				2838CB8E3BB731C0C58ADEBF,
 				E68DE723119F75E73EA2FB8A,
+				C4E61D5F31932B9FB0E2B101,
 				8EC9B11F6D5AB55D221E9B4F,
 				C6D0230308EF258E44323DB5,
 				4E27733AA39EB239B5404889,
@@ -2088,6 +2141,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0E2952C57168E56459E1915B,
+				578BD867D6579EBDF41612D8,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2415,6 +2469,7 @@
 			name = iPadn;
 			packageProductDependencies = (
 				0507EAB0D89D8F0B76FF0550,
+				7B1E85966AEB65F644FFA16E,
 			);
 			productName = iPadn;
 			productReference = DEF93E8F8AC229A0D98BBEFA;
@@ -2830,6 +2885,7 @@
 			);
 			packageReferences = (
 				9BC77B6C9BFAFB5749CF4757,
+				9185957E0DACD165D33A45A9,
 			);
 		};
 	};

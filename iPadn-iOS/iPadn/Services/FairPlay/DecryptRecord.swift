@@ -104,6 +104,8 @@ struct DecryptRecord: Codable, Identifiable, Sendable {
     /// UI provenance only: prevents an old attempt claiming a subsequently
     /// replaced file. Optional for checkpoint-era record compatibility.
     var outputIdentity: String?
+    /// Certificate name when the output was re-signed and can be installed directly.
+    var signedWith: String?
     var state: DecryptRecordState = .running
     var counts = DecryptCounts()
     var verification: DecryptVerificationResult = .none

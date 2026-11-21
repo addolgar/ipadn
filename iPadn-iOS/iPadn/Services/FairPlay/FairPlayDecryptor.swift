@@ -44,6 +44,8 @@ enum FairPlayDecryptor {
         /// Zero once the entropy rule is active; non-zero means "the tool said no
         /// to something it actually decrypted", never "FairPlay refused".
         var heuristicRejected = 0
+        /// Certificate name when the package was re-signed after decryption.
+        var signedWith: String? = nil
     }
 
     enum Failure: LocalizedError {
@@ -128,6 +130,7 @@ enum FairPlayDecryptor {
         ipaURL: URL,
         allowBundleStaging: Bool = false,
         sdkTarget: UInt32? = nil,
+        signing: SigningFiles.Material? = nil,
         isCancelled: () -> Bool = { false },
         report: (FairPlayProgress) -> Void = { _ in },
         log: @escaping (FairPlayLine) -> Void
@@ -348,6 +351,24 @@ enum FairPlayDecryptor {
                              text: "SDK raised in \(changes.count) executable(s); re-sign before installing"))
         }
 
+        // 4c. optional re-sign with the user's certificate. A failure keeps the
+        // decrypted (unsigned) package rather than losing the run.
+        var signedWith: String?
+        if let signing {
+            if isCancelled() { throw Failure.cancelled }
+            report(FairPlayProgress(phase: "重新打包", fraction: 0.8, detail: signing.certificate.name))
+            log(FairPlayLine(kind: .phase, text: "SIGN \(signing.certificate.name)"))
+            do {
+                try AppSigner.sign(appDir: appDir, with: signing) { line in
+                    log(FairPlayLine(kind: .info, text: line))
+                }
+                signedWith = signing.certificate.name
+                log(FairPlayLine(kind: .ok, text: "signed: ready to install"))
+            } catch {
+                log(FairPlayLine(kind: .fail, text: "signing failed: \(error.localizedDescription)"))
+            }
+        }
+
         // 5. repack
         report(FairPlayProgress(phase: "重新打包", fraction: 0.82, detail: "\(stem).ipa"))
         log(FairPlayLine(kind: .phase, text: "PACK"))
@@ -399,7 +420,7 @@ enum FairPlayDecryptor {
         return Outcome(outputURL: output, decrypted: decrypted, plain: plain, failed: failed,
                        machO: after.count, elapsed: Date().timeIntervalSince(started),
                        partial: partial || !(verification?.isClean ?? true), verification: verification,
-                       heuristicRejected: heuristicRejected)
+                       heuristicRejected: heuristicRejected, signedWith: signedWith)
     }
 
     // MARK: - helpers

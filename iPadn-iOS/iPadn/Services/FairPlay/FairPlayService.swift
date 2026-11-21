@@ -94,6 +94,7 @@ final class FairPlayService: ObservableObject {
         let logBuffer = LineBuffer()
 
         let sdkTarget = SDKVersionPatcher.configuredTarget
+        let signing = SigningFiles.materialIfEnabled()
         task = Task { [weak self] in
             let outcome: Result<FairPlayDecryptor.Outcome, Error> = await withCheckedContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
@@ -102,6 +103,7 @@ final class FairPlayService: ObservableObject {
                             ipaURL: source,
                             allowBundleStaging: false,
                             sdkTarget: sdkTarget,
+                            signing: signing,
                             isCancelled: { flag.isCancelled },
                             report: { progress in
                                 Task { @MainActor [weak self] in self?.apply(progress) }
@@ -233,6 +235,7 @@ final class FairPlayService: ObservableObject {
         DecryptRecordStore.shared.update(id: id) { record in
             record.outputName = value.outputURL.lastPathComponent
             record.outputBytes = bytes
+            record.signedWith = value.signedWith
             record.counts = DecryptCounts(decrypted: value.decrypted, plain: value.plain,
                                           failed: value.failed, machO: value.machO)
             record.verification = untouched ? .none : (clean ? .clean : (value.failed > 0 ? .partial : .failed))

@@ -1149,6 +1149,8 @@ struct DecryptOptionsView: View {
     @ObservedObject private var service = FairPlayHub.shared.service
     @AppStorage(SDKVersionPatcher.enabledKey) private var sdkPatch = false
     @AppStorage(SDKVersionPatcher.targetKey) private var sdkTarget = SDKVersionPatcher.defaultTarget
+    @AppStorage(SigningFiles.enabledKey) private var signAfter = false
+    @ObservedObject private var certificates = SigningCertificateStore.shared
     var body: some View {
         Form {
             Section {
@@ -1173,6 +1175,18 @@ struct DecryptOptionsView: View {
                 }
             } footer: {
                 Text("解密时把应用记录的 iOS SDK 版本提高到目标版本，让系统不再以兼容模式运行旧应用；iPhone Duo 内屏全屏需要 27.1 或更高。只会提高不会降低，修改后的安装包须重新签名才能安装。")
+            }
+            Section {
+                Toggle("解密后签名", isOn: $signAfter)
+                NavigationLink {
+                    SigningCertificatesView()
+                } label: {
+                    LabeledContent("签名证书") {
+                        Text(verbatim: certificates.selected?.name ?? AppText.text("未选择"))
+                    }
+                }
+            } footer: {
+                Text("用你导入的证书重新签名，完成后可以直接在 iPadn 里安装；用同一张证书签名的更新会保留应用数据。需要 JIT 的应用请选择可调试的开发证书（需开启开发者模式）。")
             }
         }
         .toolPage()
