@@ -1,26 +1,28 @@
-## iPadn 2.3.3
+## iPadn 2.3.5
 
 **目录 / Contents**：[简体中文](#-核心修复与优化) · [TestFlight 说明与免责](#-testflight-实验性说明与免责声明) · [English](#english) · [TestFlight Notice](#testflight-experimental-notice--disclaimer)
 
-本次为 **v2.3.3** 全面加固与体验升级版：重点修复下载/领许可时偶发「Apple 暂时无法完成该操作」的协议盲区（补齐 `1008` 会话过期刷新、`-128` 地区自动纠偏、新版条款提示与 HTTP 200 诊断日志）；升级「下载」页多选与统一撤销删除，新增安装包构建 SDK / Xcode 版本速查，修复「应用包」左滑变灰遮罩，并完成一轮覆盖安全脱敏、滚动性能、深浅色对比度与 11 语言本地化的全面审计优化。安装包均未签名，请使用自用签名工具签名后安装。
+本次为 **v2.3.5** 稳定性修复与体验升级版：根治 **iOS 16.0–16.2 强链接符号闪退**、**iOS 27.2 beta 2 历史版本加载闪退** 与 **iPadOS 全屏/专业模式导航栏异常**；**TestFlight 现支持切换下载 Apple TV 等多平台测试包**并统一展示单色客户端标识，同时修复大型/多变体游戏误报「产物校验失败，已清理」及详情页顶部虚化异常；在「设置 › 外观与图标」开放**自定义全部 177 个 Apple 商店地区**（支持搜索筛选、勾选、拖拽排序与国旗展示）；并修复 FairPlay 高熵插件误拒、登录 `5020`/2FA 提示、未购免费应用首次获取旧版报错与「应用包」批量导入打断问题。安装包均未签名，请使用自用签名工具签名后安装。
 
 ### 🔧 核心修复与优化
 
-- **修复 Apple 下载/获取报错「暂时无法完成该操作」与诊断盲区**
-  - 补齐 `1008`（设备验证/会话过期）在下载、历史版本票据、领免费许可及 Mac 包路径中的自动刷新与重新登录处理；补充密码已更改（`Your password has changed.`）与账号停用（`Your account is disabled.`）的明确引导。
-  - 新增 `-128`（`MZCommerce.CountryMismatch`）自动纠偏：安全校验 Apple 返回的 `resetAndRedirect?dsf=` 商店代码，自动更新账号真实地区并重试，避免 `+86` 手机号或转区账号卡在地区错配。
-  - 新增 `buyProductFailure` 新版 App Store 条款（`termsPage`）检测与严格 `purchaseSuccess` 判定，并补全 `buyProduct` 请求参数与 `pod` 路由。
-  - 消除诊断盲区：Apple HTTP 200 plist 业务失败现自动写入严格脱敏的 `RequestFailureLog`（仅记录错误码、文档与弹窗标识，零隐私泄露），未知数字错误码亦会附带在提示末尾便于一眼定位。
-- **「下载」页多选体验升级与统一撤销删除**
-  - 「下载」页多选改为与「应用包」一致的就地勾选交互，同时纳入 **TestFlight** 任务支持全选与批量删除。
-  - 常规下载与 TestFlight 删除（单条左滑或批量多选）统一接入 5 秒撤销倒计时栈，点击撤销可一次性恢复全部已删任务与文件。
-- **安装包构建 SDK / Xcode 版本速查与交互修复**
-  - 下载详情、应用包与 TestFlight 详情新增构建 **SDK 与 Xcode 版本**快捷查看（自动结合 `Info.plist` 与 Mach-O `LC_BUILD_VERSION` 解析）。
-  - 修复专业模式「应用包」与「解密记录」列表左滑操作时整行变灰/出现半透明遮罩的问题。
-- **安全、性能与多语言体验全面加固**
-  - **安全性与稳定性**：加固诊断脱敏与 TestFlight 多账号 Cookie 隔离、强化 `TFSINF` `cryptid` 校验，提升已购历史同步容错并消除页面生命周期竞态。
-  - **滚动流畅度**：移除主线程同步磁盘 I/O 与文件扫描，补充图标与元数据缓存，显著提升「下载」「应用包」「已购」「TestFlight」长列表帧率与响应速度。
-  - **UI / 无障碍 / 11 语言**：补全 11 种语言本地化与阿拉伯语 RTL 适配，优化深浅色对比度、账号头像自适应灰阶与 TestFlight 统一占位图标。
+- **修复 iOS 16/27 闪退与 iPadOS 专业模式导航异常**
+  - 移除强链接 iOS 17+/18+ 的 `UnevenRoundedRectangle` 与全部 `.onGeometryChange` 调用，改用向后兼容路径与几何读取实现，根治 iOS 16.0 / 16.0.2 / 16.2 打开界面或卡片时因动态符号缺失导致的闪退。
+  - 修复 iOS 27.2 beta 2 在应用详情页加载历史版本时偶发崩溃的问题（修正版本行布局优先级与骨架屏几何回调防抖阈值）。
+  - 修复 iPadOS 全屏及开启「专业模式」后导航栏切换错乱、标题丢失与工具栏按钮跨标签泄露的问题，改为按当前活动标签隔离独立导航栈。
+- **TestFlight 支持 Apple TV 多平台下载、校验修复与顶部优化**
+  - TestFlight 详情页新增多平台切换（如 `iOS` / `Apple TV`），支持直接下载 Apple TV（tvOS）测试包，并与同一应用的 iOS 测试包独立索引、互不覆盖。
+  - 在「下载」「应用包」「存储空间」「包体详情」「解密详情」等全应用页面为 Apple TV 等非 iPhone 包并列展示单色客户端图标（紧邻单色 TestFlight 图标）；点击 TestFlight 任务与安装包详情均可查看来源、客户端与对应最低系统版本（如 `tvOS`）；Apple TV 测试包下载后与常规商店包一致不显示「安装」按钮且不触发自动安装。
+  - 修复 TestFlight 下载大型/多变体游戏（如多架构或超大二进制包）误报「产物校验失败，已清理」的问题：改用流式读取 Mach-O 头部前缀并兼容 FAT 32/64 位架构 `cryptid` 校验，修正替换 SINF 计数与完整变体（`packages.full`）筛选逻辑。
+  - 修复进入 TestFlight 应用详情页时顶部状态栏与封面衔接处出现浅色虚化断层的显示异常，改用不透明模糊与导航栏原生外观平滑衔接。
+- **设置开放自定义 177 个商店地区（支持搜索筛选与排序）**
+  - 在「设置 › 外观与图标 › 商店地区」开放自定义管理搜索页显示的地区列表，覆盖全部 **177** 个 Apple App Store 商店地区（补齐 `AF`、`LI`）。
+  - 支持按中文名称、英文名称或 ISO‑2 地区代码实时搜索筛选（精确匹配代码优先置顶）、点击勾选、拖拽排序、国旗与代码同屏展示及一键「恢复默认」（至少保留 1 个地区）。
+- **修复 FairPlay 解密误拒、首次获取旧版报错与批量导入体验**
+  - 修复专业模式本机 FairPlay 解密部分高熵插件二进制（如 `_codecs_cn`）时被误判校验失败的问题，补充基于解码后指令特征的放行校验。
+  - 完善 App Store 登录诊断与错误文案：记录 `SAPSigner` 失败阶段详情，修正 `5020` 与双重认证提示文案，避免误导。
+  - 修复未获取过的免费应用首次「获取」并加载历史版本时因 Apple 许可延迟偶发失败的问题（获取许可后自动清理旧缓存并执行短退避重试）。
+  - 修复「应用包」批量导入多个 IPA 时中途自动跳进详情页打断队列的问题，新增实时导入计数（`正在添加安装包（已完成/总数）`）、批量完成提示与可关闭错误横幅。
 
 ---
 
@@ -36,32 +38,35 @@
 
 ### 📦 安装包与签名源
 
-- `iPadn-2.3.3-unsigned.ipa`：标准版，含实时活动（灵动岛、锁屏进度）与桌面小组件扩展，签名需要 2 个 App ID。
-- `iPadn-2.3.3-lite-unsigned.ipa`：精简版，移除扩展，只需 1 个 App ID；不提供实时活动或小组件，其他功能完全一致。
+- `iPadn-2.3.5-unsigned.ipa`：标准版，含实时活动（灵动岛、锁屏进度）与桌面小组件扩展，签名需要 2 个 App ID。
+- `iPadn-2.3.5-lite-unsigned.ipa`：精简版，移除扩展，只需 1 个 App ID；不提供实时活动或小组件，其他功能完全一致。
 - SideStore、AltStore、Feather 等签名工具可添加源：`https://raw.githubusercontent.com/mengangs/ipadn/main/altstore-source.json`。
 
 ---
 
 ### English
 
-**v2.3.3** is a comprehensive reliability, performance, and UX refinement release: it fixes opaque "Apple couldn't complete the operation" download/purchase errors (`1008` session refresh, `-128` storefront auto-recovery, updated App Store terms detection, and redacted HTTP 200 plist diagnostics), upgrades **Downloads** multi-select and unified 5-second Undo across regular & TestFlight items, adds quick **SDK / Xcode build version** inspection, fixes the gray dimming mask when swiping rows in **Packages**, and ships a full security, smoothness, contrast, and 11-language localization audit. Both packages are unsigned—sign with your own tool before installing.
+**v2.3.5** delivers key stability fixes and highly requested improvements: eliminates **iOS 16.0–16.2 strong-linked symbol crashes**, **iOS 27.2 beta 2 version-history crashes**, and **iPadOS full-screen / Pro mode toolbar & navigation bugs**; adds **multi-platform TestFlight downloads (including Apple TV)** with monochrome client badges, fixes false validation rejections on large/multi-variant games, and polishes the TestFlight detail top blur; opens a searchable, reorderable **177-region Storefront picker** under Settings › Appearance & icon; and resolves FairPlay high-entropy false rejections, login `5020`/2FA messaging, first-time free-app license retries, and multi-IPA batch import interruptions. Both packages are unsigned—sign with your own tool before installing.
 
-#### Fixes & Improvements Since v2.3.2
+#### Fixes & Improvements Since v2.3.4
 
-- **Fixed Apple Download Errors & Diagnostic Blind Spots**
-  - Handles `failureType = 1008` (device verification / session expired) consistently with `2034 / 2042` across downloads, version tickets, free license acquisition, and Mac offers, plus explicit messages for password changes and disabled accounts.
-  - Adds strict `-128` (`MZCommerce.CountryMismatch`) storefront auto-correction (`resetAndRedirect?dsf=`) that persists the account's real storefront, retries `buyProduct`, and prevents login echo headers from overwriting corrected storefronts.
-  - Detects `buyProductFailure` App Store Terms prompts (`termsPage`), enforces `purchaseSuccess` validation, adds `pod` routing and standard purchase parameters, records redacted metadata for HTTP 200 Apple plist failures into `RequestFailureLog`, and includes strictly validated numeric error codes on unmapped fallback alerts.
-- **Upgraded Downloads Multi-Select & Unified Undo**
-  - Aligns **Downloads** multi-select with **Packages** using smooth in-place row selection covering both standard and **TestFlight** items (including Select All and bulk delete).
-  - Unifies regular download and TestFlight deletions into a single 5-second Undo stack that restores both tasks and files together.
-- **Quick SDK / Xcode Build Inspection & Swipe Mask Fix**
-  - Displays compiled **SDK & Xcode versions** (from `Info.plist` and Mach-O `LC_BUILD_VERSION`) in Package & TestFlight details.
-  - Fixes the gray veil/highlight dimming mask when swiping rows left in Pro mode **Packages** and **Decryption History**.
-- **Security, Performance & Localization Hardening**
-  - **Security & Stability**: Hardened diagnostic redaction, per-account TestFlight cookie isolation, `TFSINF` `cryptid` verification, owned-history resilience, and view lifecycle races.
-  - **Scroll Smoothness**: Moved synchronous disk I/O off the main thread and improved icon/metadata caching for fluid scrolling across Downloads, Packages, Purchased, and TestFlight.
-  - **UI, Accessibility & 11 Languages**: Completed 11-language localization & Arabic RTL polish, refined Light/Dark contrast, adaptive account avatars, and unified TestFlight icon placeholders.
+- **Fix iOS 16/27 Crashes & iPadOS Pro Mode Navigation**
+  - Removes strong-linked iOS 17+/18+ `UnevenRoundedRectangle` and all `.onGeometryChange` usages in favor of backward-compatible paths and geometry observers, resolving launch and view crashes on iOS 16.0 / 16.0.2 / 16.2.
+  - Fixes a crash on iOS 27.2 beta 2 when loading version history on App Detail by stabilizing row layout priorities and shimmer geometry change thresholds.
+  - Fixes missing titles, broken navigation, and leaked cross-tab toolbars in iPadOS full-screen & Pro mode by isolating a single active `NavigationStack` per tab.
+- **TestFlight Apple TV Support, Validation & Hero Blur Fix**
+  - Adds platform switching (`iOS` / `Apple TV`, etc.) on TestFlight detail pages to download Apple TV (tvOS) beta IPAs alongside iOS builds, indexed cleanly per `(bundle, platform)`.
+  - Places monochrome platform icons beside the monochrome TestFlight icon across **Downloads**, **Packages**, **Storage**, **Package Info**, and **Decryption Detail**; displays source, client platform, and accurate minimum OS (e.g., `tvOS`) in task & package details; hides the Install button and skips Auto-Install for Apple TV IPAs just like regular App Store Apple TV downloads.
+  - Fixes false "validation failed, cleaned up" errors on large or multi-variant TestFlight games via streaming Mach-O header prefix reads, FAT 32/64-bit `cryptid` inspection, accurate SINF replacement counting, and `packages.full`-first variant selection.
+  - Eliminates the light top-edge blur band on TestFlight detail pages using opaque hero blur and native navigation bar appearance syncing.
+- **Customizable 177 Storefront Regions with Search & Reorder**
+  - Adds **Settings › Appearance & icon › Storefront Regions** covering all **177** Apple App Store regions (including `AF` and `LI`).
+  - Supports instant search by localized name, English name, or ISO‑2 code (with exact ISO‑2 matches ranked first), tap-to-toggle, drag-to-reorder, flag + code display, and one-tap **Reset to Defaults**.
+- **FairPlay, Login/License Retry & Batch Import Fixes**
+  - Fixes on-device FairPlay decryption falsely rejecting legitimate high-entropy plugin binaries (such as `_codecs_cn`) by accepting verified decrypted instruction streams.
+  - Improves App Store sign-in `5020` / 2FA messaging and adds staged `SAPSigner` failure diagnostics.
+  - Automatically invalidates stale version caches and performs short backoff retries after acquiring a free app license so first-time older-version fetches no longer fail on transient `9610` delays.
+  - Fixes multi-IPA batch import in **Packages** prematurely opening a detail sheet mid-batch, adding live `(done/total)` progress, batch completion toast, and a dismissible error banner.
 
 #### Official Telegram Channel & GitHub Issues Archive
 - **Official Telegram Channel**: [**https://t.me/ipadn_official**](https://t.me/ipadn_official) (new builds & source archives land here first).
@@ -72,8 +77,8 @@
 - Released under [GPL-2.0-or-later](LICENSE) for authorized personal testing, backups, and research; unaffiliated with Apple Inc., with all account or data risks assumed by the user.
 
 #### Packages
-- `iPadn-2.3.3-unsigned.ipa`: Standard build with Live Activities & Widgets (requires 2 App IDs).
-- `iPadn-2.3.3-lite-unsigned.ipa`: Lite build without extensions (requires 1 App ID; identical core features).
+- `iPadn-2.3.5-unsigned.ipa`: Standard build with Live Activities & Widgets (requires 2 App IDs).
+- `iPadn-2.3.5-lite-unsigned.ipa`: Lite build without extensions (requires 1 App ID; identical core features).
 - AltStore / SideStore / Feather repo: `https://raw.githubusercontent.com/mengangs/ipadn/main/altstore-source.json`.
 
 更早版本的更新内容见 [Releases](https://github.com/mengangs/ipadn/releases)。

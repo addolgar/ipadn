@@ -9,6 +9,7 @@ struct PackagesView: View {
     @ObservedObject private var ui = FairPlayPresentation.shared
     @ObservedObject private var service = FairPlayHub.shared.service
     @ObservedObject private var records = DecryptRecordStore.shared
+    @ObservedObject private var packageRemovals = PackageFileRemovalStore.shared
 
     @State private var products = false
     @State private var picking = false
@@ -18,10 +19,15 @@ struct PackagesView: View {
     @State private var standalone: [URL] = []
     @State private var orphanedOutputs: [URL] = []
     @State private var importedIDs: Set<UUID> = []
+    @State private var importTotal = 0
+    @State private var importProcessed = 0
+    @State private var importSucceeded = 0
+    @State private var importAllowsAutoOpen = false
     @State private var pendingImport: [URL] = []
     @State private var importIssue: String?
     @State private var presentation: PackageFilePresentation?
     @State private var pendingDelete: PendingDelete?
+    @State private var swipingDeleteJobs = Set<UUID>()
     @State private var editing = false
     @State private var selection = Set<SelectionItem>()
     @State private var confirmingBatchDelete = false
@@ -100,8 +106,19 @@ struct PackagesView: View {
     }
 
     private var outputs: [DecryptRecord] {
-        allOutputs.filter {
-            matches([$0.appName, $0.version ?? "", $0.bundleID ?? "", $0.outputName ?? ""])
+        allOutputs.filter { record in
+            #if canImport(TestFlightKit)
+            let source = ui.source(for: record, manager: manager)
+            let tfItem = source.flatMap { tfProducts.item(forFile: $0) }
+            let isTF = record.isTestFlight == true || tfItem != nil || source?.path.contains("/TestFlight/") == true
+            var fields = [record.appName, tfItem?.displayName ?? "", record.version ?? "", record.bundleID ?? "", record.outputName ?? ""]
+            if isTF { fields.append(contentsOf: ["TestFlight", "TF"]) }
+            return matches(fields)
+            #else
+            var fields = [record.appName, record.version ?? "", record.bundleID ?? "", record.outputName ?? ""]
+            if record.isTestFlight == true { fields.append(contentsOf: ["TestFlight", "TF"]) }
+            return matches(fields)
+            #endif
         }.sorted {
             sort == 1 ? $0.appName.localizedStandardCompare($1.appName) == .orderedAscending
                 : sort == 2 ? ($0.outputBytes ?? 0) > ($1.outputBytes ?? 0)
@@ -147,7 +164,7 @@ struct PackagesView: View {
         var items: [SelectionItem] = originals.compactMap { !ui.protects($0.id) ? .job($0.id) : nil }
             + filteredStandalone.compactMap { !ui.protects(url: $0) ? .standalone($0) : nil }
         #if canImport(TestFlightKit)
-        items.append(contentsOf: filteredTFItems.compactMap { !ui.protects(url: $0.fileURL) ? .tf($0.bundleID) : nil })
+        items.append(contentsOf: filteredTFItems.compactMap { !ui.protects(url: $0.fileURL) ? .tf($0.id) : nil })
         #endif
         return items
     }
@@ -161,36 +178,15 @@ struct PackagesView: View {
             .packageFilePresenter($presentation)
             #if canImport(TestFlightKit)
             .sheet(item: $installingTFItem) { item in
-                let beta = item.betaApp
-                TFInstallSheet(
-                    app: beta,
-                    packageURL: item.fileURL,
-                    iconURL: item.iconURL,
-                    iconColors: item.iconColors,
-                    iconRevision: tfModel.iconRevisions[item.appID] ?? 0,
-                    installation: store.installation,
-                    isInstalling: tfModel.installingAppIDs.contains(item.appID),
-                    isInstalled: tfModel.installedAppIDs.contains(item.appID),
-                    installNote: tfModel.installNotes[item.appID],
-                    installFailed: tfModel.installFailedAppIDs.contains(item.appID),
-                    needsChannelGuide: tfModel.installNeedsChannelAppIDs.contains(item.appID),
-                    onInstall: { method in
-                        tfModel.install(beta, method: method, installation: store.installation)
-                    },
-                    onDelete: {
-                        installingTFItem = nil
-                        do {
-                            try store.removeTFProductWithUndo(item)
-                        } catch {
-                            store.errorMessage = error.localizedDescription
-                        }
-                    },
-                    onOpenSettings: {
-                        installingTFItem = nil
-                        store.selectTab(.accounts)
-                        store.accountNav.push(.installation)
-                    }
+                PackageInstallationView(
+                    job: item.makeInstallJob(),
+                    packageFileURL: item.fileURL,
+                    packageIconURL: item.iconURL,
+                    isTestFlight: true
                 )
+                .sheetNotice()
+                .environmentObject(store)
+                .environmentObject(store.downloads)
             }
             #endif
             .sheet(isPresented: $picking, onDismiss: {
@@ -280,7 +276,21 @@ struct PackagesView: View {
             if importing || !importedIDs.isEmpty { importProgress }
             if let importIssue {
                 Section {
-                    InlineIssue(message: importIssue)
+                    HStack(alignment: .top, spacing: 8) {
+                        InlineIssue(message: importIssue)
+                        Spacer(minLength: 4)
+                        Button {
+                            withAnimation(UX.motion(reduceMotion)) {
+                                self.importIssue = nil
+                            }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.tertiary)
+                                .frame(minWidth: 32, minHeight: 32)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("关闭错误提示")
+                    }
                 }
             }
             if allEmpty && term.isEmpty {
@@ -338,7 +348,12 @@ struct PackagesView: View {
         Section {
             HStack(spacing: 10) {
                 ProgressView()
-                Text("正在添加安装包…")
+                if importTotal > 1 {
+                    Text("正在添加安装包（\(min(importProcessed, importTotal))/\(importTotal)）…")
+                        .monospacedDigit()
+                } else {
+                    Text("正在添加安装包…")
+                }
             }
             ForEach(importFailures) { job in
                 Text(verbatim: job.error ?? AppText.text("安装包未能添加"))
@@ -428,19 +443,84 @@ struct PackagesView: View {
         let existingIDs = Set(manager.jobs.map(\.id))
         importedIDs.formIntersection(existingIDs)
         var finished = Set<UUID>()
+        var singleCompletedID: UUID?
         for job in manager.jobs {
             guard importedIDs.contains(job.id) else { continue }
             if job.status == .completed {
-                if importedIDs.count == 1, store.tabs.id == .packages, ui.path.isEmpty {
-                    ui.navigate(.source(job.id))
+                importSucceeded += 1
+                if !importing && importAllowsAutoOpen && importedIDs.count == 1,
+                   store.tabs.id == .packages, ui.path.isEmpty {
+                    singleCompletedID = job.id
                 }
                 finished.insert(job.id)
             } else if job.status == .failed {
-                importIssue = job.error ?? AppText.text("安装包未能添加")
+                importIssue = (importIssue.map { $0 + "\n" } ?? "") + (job.error ?? AppText.text("安装包未能添加"))
                 finished.insert(job.id)
             }
         }
         importedIDs.subtract(finished)
+        if let singleCompletedID {
+            importAllowsAutoOpen = false
+            importTotal = 0
+            importProcessed = 0
+            importSucceeded = 0
+            ui.navigate(.source(singleCompletedID))
+            return
+        }
+        if !importing && importedIDs.isEmpty && importTotal > 0 {
+            let total = importTotal
+            let succeeded = importSucceeded
+            importTotal = 0
+            importProcessed = 0
+            importSucceeded = 0
+            importAllowsAutoOpen = false
+            if total > 1 && succeeded > 0 {
+                store.infoMessage = AppText.text("已添加 \(succeeded) 个安装包")
+            }
+        }
+    }
+
+    private enum UnifiedOriginalEntry: Identifiable {
+        case job(DownloadJob)
+        #if canImport(TestFlightKit)
+        case tf(TFProductItem)
+        #endif
+
+        var id: String {
+            switch self {
+            case .job(let job): return "job:" + job.id.uuidString
+            #if canImport(TestFlightKit)
+            case .tf(let item): return "tf:" + item.id
+            #endif
+            }
+        }
+
+        var sortName: String {
+            switch self {
+            case .job(let job): return job.app.name
+            #if canImport(TestFlightKit)
+            case .tf(let item): return item.displayName
+            #endif
+            }
+        }
+
+        var sortSize: Int64 {
+            switch self {
+            case .job(let job): return job.app.size
+            #if canImport(TestFlightKit)
+            case .tf(let item): return item.fileSize
+            #endif
+            }
+        }
+
+        var sortDate: Date {
+            switch self {
+            case .job(let job): return job.createdAt
+            #if canImport(TestFlightKit)
+            case .tf(let item): return item.modifiedAt
+            #endif
+            }
+        }
     }
 
     @ViewBuilder private var originalSections: some View {
@@ -448,10 +528,20 @@ struct PackagesView: View {
         let currentStandalone = filteredStandalone
         #if canImport(TestFlightKit)
         let tfItems = filteredTFItems
-        #else
-        let tfItems: [Int] = []
         #endif
-        if currentOriginals.isEmpty && currentStandalone.isEmpty && tfItems.isEmpty {
+        let unifiedOriginals: [UnifiedOriginalEntry] = {
+            var entries: [UnifiedOriginalEntry] = currentOriginals.map { .job($0) }
+            #if canImport(TestFlightKit)
+            entries.append(contentsOf: tfItems.map { .tf($0) })
+            #endif
+            entries.sort { lhs, rhs in
+                if sort == 1 { return lhs.sortName.localizedStandardCompare(rhs.sortName) == .orderedAscending }
+                if sort == 2 { return lhs.sortSize > rhs.sortSize }
+                return lhs.sortDate > rhs.sortDate
+            }
+            return entries
+        }()
+        if unifiedOriginals.isEmpty && currentStandalone.isEmpty {
             Section {
                 if term.isEmpty {
                     EmptyState(
@@ -470,39 +560,31 @@ struct PackagesView: View {
                 }
             }.listRowBackground(Color.clear)
         } else {
-            if !currentOriginals.isEmpty {
+            if !unifiedOriginals.isEmpty {
                 Section {
-                    ForEach(currentOriginals) { job in
-                        originalJobRow(job)
+                    ForEach(unifiedOriginals) { entry in
+                        switch entry {
+                        case .job(let job):
+                            originalJobRow(job)
+                        #if canImport(TestFlightKit)
+                        case .tf(let item):
+                            tfProductRow(item)
+                        #endif
+                        }
                     }
-                } footer: {
-                    if currentStandalone.isEmpty && tfItems.isEmpty {
-                        Text("原始 IPA 是处理来源，可能已加密，也可能本来就未加密。")
-                    }
-                }
-            }
-            #if canImport(TestFlightKit)
-            if !tfItems.isEmpty {
-                Section {
-                    ForEach(tfItems) { item in
-                        tfProductRow(item)
-                    }
-                } header: {
-                    Text("TestFlight")
                 } footer: {
                     if currentStandalone.isEmpty {
                         Text("原始 IPA 是处理来源，可能已加密，也可能本来就未加密。")
                     }
                 }
             }
-            #endif
             if !currentStandalone.isEmpty {
                 Section {
                     ForEach(currentStandalone, id: \.self) { url in
                         standaloneRow(url)
                     }
                 } header: {
-                    if !currentOriginals.isEmpty || !tfItems.isEmpty { Text("本地文件") }
+                    if !unifiedOriginals.isEmpty { Text("本地文件") }
                 } footer: {
                     Text("原始 IPA 是处理来源，可能已加密，也可能本来就未加密。")
                 }
@@ -529,17 +611,17 @@ struct PackagesView: View {
             status: status.text,
             symbol: status.symbol,
             color: status.color,
-            badge: "TF",
-            badgeTint: .blue
+            isTestFlight: true,
+            platform: item.nonPhonePlatformBadge
         )
 
-        return selectableRow(.tf(item.bundleID), disabled: ui.protects(url: item.fileURL), content: { row }) {
+        return selectableRow(.tf(item.id), disabled: ui.protects(url: item.fileURL), content: { row }) {
             packageNavRow(route: .file(item.fileURL)) { row }
-                .accessibilityIdentifier("packages.tf." + item.bundleID)
+                .accessibilityIdentifier("packages.tf." + item.id)
                 .revealActions(
-                    id: "pkg.tf." + item.bundleID,
+                    id: "pkg.tf." + item.id,
                     enabled: !ui.protects(url: item.fileURL),
-                    restored: tfProducts.recentlyRestoredBundleIDs.contains(item.bundleID),
+                    restored: tfProducts.recentlyRestoredBundleIDs.contains(item.id),
                     [
                         .delete(fills: true) {
                             guard !ui.protects(url: item.fileURL) else {
@@ -547,7 +629,7 @@ struct PackagesView: View {
                                 return
                             }
                             do {
-                                try store.removeTFProductWithUndo(item)
+                                try store.removeTFProductWithUndo(item, fromPackages: true)
                             } catch {
                                 store.errorMessage = error.localizedDescription
                             }
@@ -558,8 +640,10 @@ struct PackagesView: View {
                     ]
                 )
                 .contextMenu {
-                    Button("安装", systemImage: "square.and.arrow.down") {
-                        installingTFItem = item
+                    if item.canInstallOnCurrentDevice {
+                        Button("安装", systemImage: "square.and.arrow.down") {
+                            installingTFItem = item
+                        }
                     }
                     if let output = result, DecryptOutcomeStyle(output) == .success, ui.currentOutput(output) != nil {
                         Button("查看解密结果", systemImage: "checkmark.circle") { ui.navigate(.record(output.id)) }
@@ -643,21 +727,24 @@ struct PackagesView: View {
             let metadata = [job.conciseVersionLabel, job.app.size > 0 ? job.app.size.byteLabel : ""]
                 .filter { !$0.isEmpty }.joined(separator: " · ")
             let rowName = PackageStage.displayName(job.app.name)
+            let jobPlatform: String? = (job.platformLabel == "tvOS" || job.platformLabel == "iPad") ? job.platformLabel : nil
             let row = PackageLibraryRow(
                 name: rowName,
                 icon: manager.packageIconURL(job) ?? job.app.iconURL,
                 metadata: metadata,
                 status: status.text,
                 symbol: status.symbol,
-                color: status.color
+                color: status.color,
+                platform: jobPlatform
             )
             selectableRow(.job(job.id), disabled: ui.protects(job.id), content: { row }) {
                 packageNavRow(route: .source(job.id)) { row }
                     .revealActions(
                         id: "pkg.job." + job.id.uuidString,
-                        enabled: !ui.protects(job.id),
+                        enabled: !ui.protects(job.id) && !swipingDeleteJobs.contains(job.id),
+                        restored: manager.recentlyRestoredIDs.contains(job.id),
                         [
-                            .delete(fills: false) { requestDeleteOriginalJob(job) },
+                            .delete(fills: true) { swipeDeleteOriginalJob(job) },
                             RevealAction(title: "分享", systemImage: "square.and.arrow.up", tint: .blue, role: nil) {
                                 exportFile(url, suggestedName: rowName + ".ipa", kind: .share)
                             }
@@ -712,8 +799,9 @@ struct PackagesView: View {
                 .revealActions(
                     id: "pkg.file." + PackageOutputPolicy.canonicalPath(url),
                     enabled: !ui.protects(url: url),
+                    restored: packageRemovals.recentlyRestoredPaths.contains(PackageOutputPolicy.canonicalPath(url)),
                     [
-                        .delete(fills: false) { requestDeleteStandaloneFile(url) },
+                        .delete(fills: true) { swipeDeleteStandaloneFile(url) },
                         RevealAction(title: "分享", systemImage: "square.and.arrow.up", tint: .blue, role: nil) {
                             exportFile(url, suggestedName: displayName + ".ipa", kind: .share)
                         }
@@ -793,8 +881,9 @@ struct PackagesView: View {
                                 .revealActions(
                                     id: "pkg.orphan." + url.lastPathComponent,
                                     enabled: !service.isRunning,
+                                    restored: packageRemovals.recentlyRestoredPaths.contains(PackageOutputPolicy.canonicalPath(url)),
                                     [
-                                        .delete(fills: false) { pendingDelete = .unlinkedFile(url) },
+                                        .delete(fills: true) { swipeDeleteUnlinkedFile(url) },
                                         RevealAction(title: "分享", systemImage: "square.and.arrow.up", tint: .blue, role: nil) {
                                             exportFile(url, suggestedName: url.lastPathComponent, kind: .share)
                                         }
@@ -820,11 +909,11 @@ struct PackagesView: View {
         #if canImport(TestFlightKit)
         let tfItem = source.flatMap { tfProducts.item(forFile: $0) }
         let resolvedName = job?.app.name ?? tfItem?.displayName ?? record.appName
-        let tfBadge: String? = tfItem != nil ? "TF" : nil
+        let isTF = record.isTestFlight == true || tfItem != nil || source?.path.contains("/TestFlight/") == true
         let tfVersionLabel = tfItem?.versionBuildLabel ?? ""
         #else
         let resolvedName = job?.app.name ?? record.appName
-        let tfBadge: String? = nil
+        let isTF = record.isTestFlight == true
         let tfVersionLabel = ""
         #endif
         let cleanName = PackageStage.displayName(resolvedName)
@@ -835,6 +924,13 @@ struct PackagesView: View {
         let outputURL = ui.currentOutput(record)
         let suggestedName = [cleanName, record.version].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "_")
             + (record.verification == .clean ? "_decrypted.ipa" : "_PARTIAL.ipa")
+        let productPlatform: String? = {
+            #if canImport(TestFlightKit)
+            if let badge = tfItem?.nonPhonePlatformBadge { return badge }
+            #endif
+            if let label = job?.platformLabel, label == "tvOS" || label == "iPad" { return label }
+            return nil
+        }()
         let row = PackageLibraryRow(
             name: cleanName,
             icon: ui.iconURL(for: record, manager: manager),
@@ -843,17 +939,19 @@ struct PackagesView: View {
             symbol: style.symbol,
             color: style.color,
             trailingNote: record.finishedAt?.formatted(date: .omitted, time: .shortened),
-            badge: tfBadge
+            isTestFlight: isTF,
+            platform: productPlatform
         )
 
         return selectableRow(.output(record.id), disabled: service.isRunning, content: { row }) {
             packageNavRow(route: .record(record.id)) { row }
                 .revealActions(
                     id: "pkg.out." + record.id.uuidString,
-                    enabled: !service.isRunning,
+                    enabled: !service.isRunning && outputURL != nil,
+                    restored: packageRemovals.recentlyRestoredRecordIDs.contains(record.id),
                     [
-                        .delete(fills: false) {
-                            if let url = outputURL { pendingDelete = .outputRecord(record, url) }
+                        .delete(fills: true) {
+                            if let url = outputURL { swipeDeleteOutput(record: record, url: url) }
                         },
                         RevealAction(title: "分享", systemImage: "square.and.arrow.up", tint: .blue, role: nil) {
                             if let url = outputURL, style == .success {
@@ -925,6 +1023,70 @@ struct PackagesView: View {
         }
     }
 
+    private func swipeDeleteOriginalJob(_ job: DownloadJob) {
+        guard !swipingDeleteJobs.contains(job.id) else { return }
+        guard !ui.protects(job.id) else {
+            store.errorMessage = AppText.text("安装包正在解密，请等待处理结束后再删除。")
+            return
+        }
+        withAnimation(UX.motion(reduceMotion)) { _ = swipingDeleteJobs.insert(job.id) }
+        Task { @MainActor in
+            defer { _ = withAnimation(UX.motion(reduceMotion)) { swipingDeleteJobs.remove(job.id) } }
+            do {
+                try await SAPSigner.$userInitiated.withValue(true) {
+                    try await store.removeDownloadWithUndo(job.id, fromPackages: true)
+                }
+            } catch is CancellationError {
+            } catch {
+                store.errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func swipeDeleteStandaloneFile(_ url: URL) {
+        guard !ui.protects(url: url) else {
+            store.errorMessage = AppText.text("安装包正在解密，请等待处理结束后再删除。")
+            return
+        }
+        do {
+            try store.removePackageFileWithUndo(url)
+            let target = PackageOutputPolicy.canonicalPath(url)
+            withAnimation(UX.motion(reduceMotion)) {
+                standalone.removeAll { PackageOutputPolicy.canonicalPath($0) == target }
+            }
+        } catch {
+            store.errorMessage = error.localizedDescription
+        }
+    }
+
+    private func swipeDeleteOutput(record: DecryptRecord, url: URL) {
+        guard !service.isRunning else {
+            store.errorMessage = AppText.text("安装包正在解密，请等待处理结束后再删除。")
+            return
+        }
+        do {
+            try store.removeDecryptOutputWithUndo(recordID: record.id, fileURL: url)
+        } catch {
+            store.errorMessage = error.localizedDescription
+        }
+    }
+
+    private func swipeDeleteUnlinkedFile(_ url: URL) {
+        guard !service.isRunning else {
+            store.errorMessage = AppText.text("安装包正在解密，请等待处理结束后再删除。")
+            return
+        }
+        do {
+            try store.removePackageFileWithUndo(url)
+            let target = PackageOutputPolicy.canonicalPath(url)
+            withAnimation(UX.motion(reduceMotion)) {
+                orphanedOutputs.removeAll { PackageOutputPolicy.canonicalPath($0) == target }
+            }
+        } catch {
+            store.errorMessage = error.localizedDescription
+        }
+    }
+
     private func requestDeleteOriginalJob(_ job: DownloadJob) {
         guard !ui.protects(job.id) else {
             store.errorMessage = AppText.text("安装包正在解密，请等待处理结束后再删除。")
@@ -992,11 +1154,9 @@ struct PackagesView: View {
                 store.errorMessage = AppText.text("安装包正在解密，请等待处理结束后再删除。")
                 return
             }
-            do {
-                try store.removeTFProductWithUndo(item)
-            } catch {
-                store.errorMessage = error.localizedDescription
-            }
+            tfProducts.delete(item)
+            ui.markFilesChanged()
+            store.infoMessage = AppText.text("已删除原始 IPA")
         #endif
         }
     }
@@ -1038,8 +1198,8 @@ struct PackagesView: View {
                 catch { firstError = firstError ?? error }
             }
             #if canImport(TestFlightKit)
-            for bundle in tfBundles {
-                if let item = tfProducts.items.first(where: { $0.bundleID == bundle }),
+            for tfID in tfBundles {
+                if let item = tfProducts.items.first(where: { $0.id == tfID || $0.bundleID == tfID }),
                    !ui.protects(url: item.fileURL) {
                     tfProducts.delete(item)
                     removed += 1
@@ -1120,13 +1280,17 @@ struct PackagesView: View {
     }
 
     private func importFiles(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
         importing = true
+        importTotal = urls.count
+        importProcessed = 0
+        importSucceeded = 0
+        importAllowsAutoOpen = urls.count == 1
         products = false
         term = ""
         importIssue = nil
         let temporary = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().path
         Task { @MainActor in
-            defer { importing = false }
             for url in urls {
                 let before = Set(manager.jobs.map(\.id))
                 do {
@@ -1135,10 +1299,12 @@ struct PackagesView: View {
                 } catch {
                     importIssue = (importIssue.map { $0 + "\n" } ?? "") + url.lastPathComponent + ": " + error.localizedDescription
                 }
+                importProcessed += 1
                 if url.resolvingSymlinksInPath().path.hasPrefix(temporary) {
                     try? FileManager.default.removeItem(at: url)
                 }
             }
+            importing = false
             finishImports()
             await refreshFiles()
         }

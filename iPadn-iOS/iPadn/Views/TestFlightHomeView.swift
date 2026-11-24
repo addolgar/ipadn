@@ -10,7 +10,7 @@ import TestFlightKit
 /// the view stays declarative and no byte-level progress reaches SwiftUI.
 struct TFRowState: Equatable {
     enum Stage: Equatable {
-        case idle, resolving, installing, downloading, verifying, done, failed
+        case idle, resolving, installing, downloading, paused, verifying, done, failed
     }
 
     var stage: Stage = .idle
@@ -205,13 +205,22 @@ struct TestFlightHomeView: View {
                 }
             )
         }
+        .sheet(isPresented: $model.needsPhoneSelection, onDismiss: {
+            model.handlePhoneSheetDismissed()
+        }) {
+            TFPhoneSelectionSheet(
+                accountDisplay: TFHomeModel.mask(model.email),
+                phones: model.trustedPhones,
+                onSelect: { phone in model.selectPhone(phone) },
+                onCancel: { model.cancelSignIn() }
+            )
+        }
         .sheet(isPresented: $model.needsCode, onDismiss: {
-            if model.phase == .working && !model.isSubmittingCode {
-                model.cancelSignIn()
-            }
+            model.handleCodeSheetDismissed()
         }) {
             TFVerificationSheet(
                 accountDisplay: TFHomeModel.mask(model.email),
+                channel: model.verificationChannel,
                 code: $model.code,
                 isSubmitting: model.isSubmittingCode,
                 onSubmit: { model.submitCode() },
@@ -223,46 +232,28 @@ struct TestFlightHomeView: View {
         }
         .sheet(item: $installingApp) { app in
             if let packageURL = model.productURL(for: app) {
-                TFInstallSheet(
-                    app: app,
-                    packageURL: packageURL,
-                    iconURL: model.iconFiles[app.id],
-                    iconColors: model.iconColors[app.id],
-                    iconRevision: model.iconRevisions[app.id] ?? 0,
-                    installation: store.installation,
-                    isInstalling: model.installingAppIDs.contains(app.id),
-                    isInstalled: model.installedAppIDs.contains(app.id),
-                    installNote: model.installNotes[app.id],
-                    installFailed: model.installFailedAppIDs.contains(app.id),
-                    needsChannelGuide: model.installNeedsChannelAppIDs.contains(app.id),
-                    onInstall: { method in
-                        model.install(app, method: method, installation: store.installation)
-                    },
-                    onDelete: {
-                        store.removeTFProductWithUndo(for: app)
-                        installingApp = nil
-                    },
-                    onOpenSettings: {
-                        store.accountNav.push(.installation)
-                    }
+                PackageInstallationView(
+                    job: model.makeInstallJob(for: app, packageURL: packageURL),
+                    packageFileURL: packageURL,
+                    packageIconURL: model.iconFiles[app.id],
+                    isTestFlight: true
                 )
+                .sheetNotice()
+                .environmentObject(store)
+                .environmentObject(store.downloads)
             }
         }
-        .confirmationDialog("切换账号将取消正在进行的下载？",
-                            isPresented: Binding(get: { pendingSwitchTarget != nil },
-                                                 set: { if !$0 { pendingSwitchTarget = nil } }),
-                            titleVisibility: .visible) {
-            Button("取消下载并切换", role: .destructive) {
-                if let target = pendingSwitchTarget {
-                    pendingSwitchTarget = nil
-                    applyAccountSwitch(target)
-                }
-            }
-            Button("取消", role: .cancel) {
+        .actionConfirmation(
+            isPresented: Binding(get: { pendingSwitchTarget != nil },
+                                 set: { if !$0 { pendingSwitchTarget = nil } }),
+            title: "切换账号将取消正在进行的下载？",
+            message: "当前有下载任务尚未完成，切换账号会中止任务并清理临时文件。",
+            confirmTitle: "取消下载并切换"
+        ) {
+            if let target = pendingSwitchTarget {
                 pendingSwitchTarget = nil
+                applyAccountSwitch(target)
             }
-        } message: {
-            Text("当前有下载任务尚未完成，切换账号会中止任务并清理临时文件。")
         }
         .task {
             model.bootstrapIfNeeded(using: accountStore)
@@ -655,7 +646,6 @@ struct TestFlightHomeView: View {
 
     private func appRow(_ app: TFBetaApp, availability: TFAppAvailability) -> some View {
         let state = model.rowState(app)
-        let isInstalled = model.installedAppIDs.contains(app.id)
         let isInstalling = model.installingAppIDs.contains(app.id)
         return NavigationLink {
             TestFlightDetailView(app: app, model: model)
@@ -686,14 +676,14 @@ struct TestFlightHomeView: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     } else {
-                        rowSubtitleView(app: app, state: state, isInstalled: isInstalled, isInstalling: isInstalling)
+                        rowSubtitleView(app: app, state: state, isInstalling: isInstalling)
                     }
                 }
 
                 Spacer(minLength: 8)
 
                 if availability == .testing {
-                    rowAccessory(app: app, state: state, isInstalled: isInstalled, isInstalling: isInstalling)
+                    rowAccessory(app: app, state: state, isInstalling: isInstalling)
                 }
             }
             .padding(.vertical, 4)
@@ -701,30 +691,14 @@ struct TestFlightHomeView: View {
     }
 
     @ViewBuilder
-    private func rowSubtitleView(app: TFBetaApp, state: TFRowState, isInstalled: Bool, isInstalling: Bool) -> some View {
+    private func rowSubtitleView(app: TFBetaApp, state: TFRowState, isInstalling: Bool) -> some View {
         let detail = model.details[app.id]
         switch state.stage {
-        case .idle:
-            twoLineOfficialMeta(app: app, detail: detail, isInstalled: false)
-        case .resolving:
-            Text("读取构建信息…")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        case .installing:
-            Text("准备下载…")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        case .downloading:
-            Text(verbatim: "\(byteText(state.received)) / \(byteText(state.total)) · \(Int(state.fraction * 100))%")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-        case .verifying:
-            Text("校验安装包…")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        case .idle, .resolving, .installing, .downloading, .paused, .verifying:
+            twoLineOfficialMeta(app: app, detail: detail)
         case .done:
             VStack(alignment: .leading, spacing: 2) {
-                twoLineOfficialMeta(app: app, detail: detail, isInstalled: isInstalled)
+                twoLineOfficialMeta(app: app, detail: detail)
                 if isInstalling, let note = model.installNotes[app.id] {
                     Text(verbatim: note)
                         .font(.caption2)
@@ -745,7 +719,7 @@ struct TestFlightHomeView: View {
     }
 
     @ViewBuilder
-    private func twoLineOfficialMeta(app: TFBetaApp, detail: TFAppDetail?, isInstalled: Bool) -> some View {
+    private func twoLineOfficialMeta(app: TFBetaApp, detail: TFAppDetail?) -> some View {
         let versionLine = Self.versionLine(app: app, detail: detail)
         let days = detail?.daysRemaining()
         VStack(alignment: .leading, spacing: 2) {
@@ -771,9 +745,6 @@ struct TestFlightHomeView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                }
-                if isInstalled {
-                    TagBadge(text: "已安装", tint: .green)
                 }
             }
         }
@@ -817,65 +788,64 @@ struct TestFlightHomeView: View {
     }
 
     @ViewBuilder
-    private func rowAccessory(app: TFBetaApp, state: TFRowState, isInstalled: Bool, isInstalling: Bool) -> some View {
+    private func rowAccessory(app: TFBetaApp, state: TFRowState, isInstalling: Bool) -> some View {
         let _ = capabilityRefreshTick
-        switch state.stage {
-        case .idle:
-            AppStoreActionButton(
-                phase: .capsule(title: AppText.text("获取"), filled: false, enabled: model.isSignedIn),
-                insideNavigationLink: true,
-                accessibilityLabelText: AppText.text("下载 \(app.name)")
-            ) {
+        let phase: AppStoreActionPhase = {
+            switch state.stage {
+            case .idle:
+                return .capsule(title: "获取", filled: false, enabled: model.isSignedIn)
+            case .resolving, .installing:
+                return .loading
+            case .downloading:
+                return state.total > 0 ? .downloading(state.fraction) : .loading
+            case .paused:
+                return .capsule(title: "继续", filled: false, enabled: true)
+            case .verifying:
+                return .processing
+            case .done:
+                return isInstalling
+                    ? .processing
+                    : .capsule(title: "安装", filled: true, enabled: true)
+            case .failed:
+                return .capsule(title: "重试", filled: false, enabled: model.isSignedIn)
+            }
+        }()
+        let label: String = {
+            switch state.stage {
+            case .idle: return AppText.text("下载 \(app.name)")
+            case .resolving, .installing: return AppText.text("取消下载 \(app.name)")
+            case .downloading: return AppText.text("暂停")
+            case .paused: return AppText.text("继续")
+            case .verifying: return AppText.text("正在校验 \(app.name)")
+            case .done: return isInstalling ? AppText.text("正在安装 \(app.name)") : AppText.text("安装 \(app.name)")
+            case .failed: return AppText.text("重试下载 \(app.name)")
+            }
+        }()
+        let valueText: String? = {
+            if state.stage == .downloading, state.total > 0 {
+                return "\(Int((state.fraction * 100).rounded()))%"
+            }
+            return nil
+        }()
+        AppStoreActionButton(
+            phase: phase,
+            insideNavigationLink: true,
+            accessibilityLabelText: label,
+            accessibilityValueText: valueText
+        ) {
+            switch state.stage {
+            case .idle, .failed:
                 model.start(app)
-            }
-        case .resolving, .installing:
-            AppStoreActionButton(
-                phase: .loading,
-                insideNavigationLink: true,
-                accessibilityLabelText: AppText.text("取消下载 \(app.name)")
-            ) {
+            case .resolving, .installing:
                 model.cancel(app)
-            }
-        case .downloading:
-            AppStoreActionButton(
-                phase: .downloading(state.fraction),
-                insideNavigationLink: true,
-                accessibilityLabelText: AppText.text("取消下载 \(app.name)"),
-                accessibilityValueText: "\(Int(state.fraction * 100))%"
-            ) {
-                model.cancel(app)
-            }
-        case .verifying:
-            AppStoreActionButton(
-                phase: .processing,
-                insideNavigationLink: true,
-                accessibilityLabelText: AppText.text("正在校验 \(app.name)")
-            ) {}
-        case .done:
-            if isInstalling {
-                AppStoreActionButton(
-                    phase: .processing,
-                    insideNavigationLink: true,
-                    accessibilityLabelText: AppText.text("正在安装 \(app.name)")
-                ) {
-                    installingApp = app
-                }
-            } else {
-                AppStoreActionButton(
-                    phase: .capsule(title: AppText.text("安装"), filled: !isInstalled, enabled: true),
-                    insideNavigationLink: true,
-                    accessibilityLabelText: AppText.text("安装 \(app.name)")
-                ) {
-                    installingApp = app
-                }
-            }
-        case .failed:
-            AppStoreActionButton(
-                phase: .capsule(title: AppText.text("重试"), filled: false, enabled: model.isSignedIn),
-                insideNavigationLink: true,
-                accessibilityLabelText: AppText.text("重试下载 \(app.name)")
-            ) {
-                model.start(app)
+            case .downloading:
+                model.pause(app)
+            case .paused:
+                model.resume(app)
+            case .verifying:
+                break
+            case .done:
+                installingApp = app
             }
         }
     }
@@ -934,6 +904,41 @@ func byteText(_ value: Int64) -> String {
     TFByteFormatter.string(fromByteCount: value)
 }
 
+/// Lightweight badge publisher for active TestFlight downloads so `RootView`
+/// updates the Downloads tab badge without observing byte-level progress ticks.
+@MainActor
+final class TFTransferBadge: ObservableObject {
+    static let shared = TFTransferBadge()
+    @Published private(set) var activeCount: Int = 0
+    private init() {}
+
+    func update(_ count: Int) {
+        if activeCount != count { activeCount = count }
+    }
+}
+
+/// Snapshot metadata for an in-progress or failed TestFlight download displayed in `DownloadsView`.
+struct TFActiveDownloadItem: Identifiable, Equatable {
+    var id: String { app.id }
+    let app: TFBetaApp
+    let displayName: String
+    let versionLabel: String
+    let bundleID: String
+    let iconURL: URL?
+    let iconColors: TFIconColors?
+    let startedAt: Date
+    let platform: String?
+
+    var nonPhonePlatformBadge: String? {
+        switch (platform ?? "").lowercased() {
+        case "appletvos", "tvos": return "appletvos"
+        case "xros", "visionos": return "xros"
+        case "ipad": return "ipad"
+        default: return nil
+        }
+    }
+}
+
 // MARK: - Shared Process-Wide ViewModel (Zero-Reload Navigation + L3 -> L2 -> Controlled L1)
 
 @MainActor
@@ -965,8 +970,11 @@ final class TFHomeModel: ObservableObject {
     @Published var code = ""
     @Published var phase: Phase = .idle
     @Published var pageState: PageState = .readyToSignIn
+    @Published var needsPhoneSelection = false
+    @Published var trustedPhones: [TFLogin.TrustedPhone] = []
     @Published var needsCode = false
     @Published var isSubmittingCode = false
+    @Published var verificationChannel: TFLogin.VerificationChannel = .trustedDevice
     @Published var isRefreshingCatalog = false
     @Published var isRestoringSilently = false
     @Published var lines: [String] = []
@@ -975,6 +983,8 @@ final class TFHomeModel: ObservableObject {
     @Published var probe: TFGSAProbe?
     @Published var dsidTail = ""
     @Published var rows: [String: TFRowState] = [:]
+    @Published var activeDownloadBuilds: [String: TFPlatformBuild] = [:]
+    @Published private(set) var activeDownloads: [TFActiveDownloadItem] = []
     @Published var networkDiagnosis: TFNetDiagnosis?
     @Published var proxyBypassed = false
     @Published var dnsPathSummary = "-"
@@ -991,9 +1001,22 @@ final class TFHomeModel: ObservableObject {
     @Published var networkMode: TFNetworkMode = TFNet.mode
     @Published private(set) var isUsingCustomSignIn = false
 
+    struct TerminalOutcome {
+        let name: String
+        let completed: Bool
+        let bytes: Int64
+        let fileURL: URL?
+        let at: Date
+    }
+
     private var runs: [String: TFTransferHandle] = [:]
     private var tasks: [String: Task<Void, Never>] = [:]
     private var downloadTokens: [String: UUID] = [:]
+    private var transferMetrics: [String: TransferMetrics] = [:]
+    private var lastProgressPublish: [String: TimeInterval] = [:]
+    private var recentOutcomes: [String: TerminalOutcome] = [:]
+    private var foregroundFallbackAppIDs: Set<String> = []
+    private var tfBackgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var detailTask: Task<Void, Never>?
     private var hydrateTask: Task<Void, Never>?
     private var restoreTask: Task<Void, Never>?
@@ -1009,8 +1032,13 @@ final class TFHomeModel: ObservableObject {
     private var resolvedProductURLs: [String: URL] = [:]
     private var checkedProductBundles: Set<String> = []
     var accountSummary = ""
+    private var accountRosterSummary = ""
 
     private var relay: TFLogin.CodeRelay?
+    private var phoneRelay: TFLogin.PhoneRelay?
+    private var awaitingCodeInput = false
+    private var awaitingPhoneSelection = false
+    private var lastPhoneSheetDismissedAt: Date = .distantPast
     private var task: Task<Void, Never>?
 
     private init() {}
@@ -1020,7 +1048,78 @@ final class TFHomeModel: ObservableObject {
     }
 
     var hasActiveDownloads: Bool {
-        rows.values.contains(where: \.isBusy)
+        rows.values.contains { $0.isBusy || $0.stage == .paused }
+    }
+
+    var hasBusyDownloads: Bool {
+        rows.values.contains { $0.isBusy }
+    }
+
+    var needsForegroundBackgroundKeepAlive: Bool {
+        hasBusyDownloads && (!foregroundFallbackAppIDs.isEmpty || TFNet.mode == .direct || TFTransfer.preferForegroundSession)
+    }
+
+    func recentTerminalOutcome(for appID: String) -> TerminalOutcome? {
+        guard let outcome = recentOutcomes[appID] else { return nil }
+        if Date().timeIntervalSince(outcome.at) > 30 {
+            recentOutcomes.removeValue(forKey: appID)
+            return nil
+        }
+        return outcome
+    }
+
+    func markInstalled(_ appID: String) {
+        installedAppIDs.insert(appID)
+        installFailedAppIDs.remove(appID)
+        installNeedsChannelAppIDs.remove(appID)
+        installNotes[appID] = AppText.text("已安装")
+    }
+
+    func makeInstallJob(for app: TFBetaApp, packageURL: URL) -> DownloadJob {
+        let detail = details[app.id]
+        let name = detail?.name ?? app.name
+        let bundle = products[app.id] ?? detail?.bundleID ?? app.bundleID
+        let short = (detail?.shortVersion ?? app.latestVersion ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let build = (detail?.buildVersion ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let version = !short.isEmpty ? short : (!build.isEmpty ? build : "1.0")
+        let size = Int64(packageURL.fileSizeBytes)
+        let storeApp = StoreApp(
+            id: app.id,
+            name: name,
+            bundleID: bundle,
+            version: version,
+            iconURL: iconFiles[app.id],
+            size: size,
+            bundleVersion: build.isEmpty ? nil : build
+        )
+        return DownloadJob(app: storeApp, status: .completed, downloaded: size, expected: size)
+    }
+
+    private func updateTFBackgroundExecution() {
+        let busy = hasBusyDownloads
+        if busy {
+            if tfBackgroundTask == .invalid {
+                tfBackgroundTask = UIApplication.shared.beginBackgroundTask(withName: "iPadn.tfDownload") { [weak self] in
+                    let endNow = {
+                        guard let self, self.tfBackgroundTask != .invalid else { return }
+                        let current = self.tfBackgroundTask
+                        self.tfBackgroundTask = .invalid
+                        UIApplication.shared.endBackgroundTask(current)
+                    }
+                    if Thread.isMainThread {
+                        MainActor.assumeIsolated { endNow() }
+                    } else {
+                        DispatchQueue.main.sync { MainActor.assumeIsolated { endNow() } }
+                    }
+                }
+            }
+        } else if tfBackgroundTask != .invalid {
+            let current = tfBackgroundTask
+            tfBackgroundTask = .invalid
+            UIApplication.shared.endBackgroundTask(current)
+        }
+        AppContainer.shared.downloads.syncTestFlightKeepAlive()
+        DownloadActivity.shared.sync()
     }
 
     var hasNetworkWarning: Bool {
@@ -1069,15 +1168,18 @@ final class TFHomeModel: ObservableObject {
         let roster = accountStore.apple.accounts
             .map { TFHomeModel.mask($0.id) }
             .joined(separator: " ")
-        accountSummary = "accounts: " + (roster.isEmpty ? "-" : roster)
+        accountRosterSummary = "accounts: " + (roster.isEmpty ? "-" : roster)
+        accountSummary = accountRosterSummary
 
         if let account = picked ?? remembered ?? accountStore.apple.active ?? accountStore.apple.accounts.first {
             email = account.id
             password = account.password
             TFSessionStore.lastAccountEmail = account.id
-            accountSummary += " | using " + TFHomeModel.mask(account.id)
+            accountSummary = accountRosterSummary + " | using " + TFHomeModel.mask(account.id)
                 + (picked == nil ? " (active)" : " (--tf-account)")
-            hydrateAndRestore(email: account.id, storeAccountDsid: account.dsid, allowAutoSignIn: true)
+            // Only attempt silent L3/L2 restoration on launch; never auto-fire GSA L1 (2FA)
+            // unless explicitly driven by a DEBUG `--tf-account=` automation launch.
+            hydrateAndRestore(email: account.id, storeAccountDsid: account.dsid, allowAutoSignIn: picked != nil)
         } else {
             pageState = .noAccount
         }
@@ -1146,8 +1248,10 @@ final class TFHomeModel: ObservableObject {
             return
         }
         TFSessionStore.lastAccountEmail = newEmail
+        // Switching accounts only restores silently via L3 (Keychain) / L2 (10-cookie jar);
+        // GSA L1 sign-in always requires 2FA and must wait for explicit user confirmation.
         hydrateAndRestore(email: newEmail, storeAccountDsid: storeAccountDsid,
-                          previousDsid: previousDsid, allowAutoSignIn: true)
+                          previousDsid: previousDsid, allowAutoSignIn: false)
     }
 
     func clearPersistedSession(storeAccountDsid: String) {
@@ -1181,18 +1285,23 @@ final class TFHomeModel: ObservableObject {
                                    previousDsid: String? = nil, allowAutoSignIn: Bool) {
         let stored = TFSessionStore.load(dsid: storeAccountDsid, email: email)
         let targetDsid = stored?.dsid ?? storeAccountDsid
+        let cachedCatalog: [TFBetaApp]? = targetDsid.isEmpty ? nil : TFSessionStore.loadCachedCatalog(dsid: targetDsid)
 
-        if !targetDsid.isEmpty {
-            let cachedApps = TFSessionStore.loadCatalog(dsid: targetDsid)
+        if let cachedApps = cachedCatalog {
+            apps = cachedApps
+            dsidTail = String(targetDsid.suffix(4))
             if !cachedApps.isEmpty {
-                apps = cachedApps
-                dsidTail = String(targetDsid.suffix(4))
                 loadProducts()
                 hydrateCachedDetailsAndIcons(for: cachedApps)
-                pageState = stored != nil ? .catalogReady : .sessionExpired
-            } else {
-                pageState = .readyToSignIn
             }
+            if stored != nil {
+                pageState = cachedApps.isEmpty ? .catalogEmpty : .catalogReady
+            } else {
+                pageState = cachedApps.isEmpty ? .readyToSignIn : .sessionExpired
+            }
+        } else if stored != nil {
+            dsidTail = String(targetDsid.suffix(4))
+            pageState = .authenticating(AppText.text("读取测试列表…"))
         } else {
             pageState = .readyToSignIn
         }
@@ -1211,16 +1320,18 @@ final class TFHomeModel: ObservableObject {
                 )
             }()
 
-            // Within 5-minute sync cooldown and cached apps already visible: skip redundant network hit!
-            if !apps.isEmpty,
+            // Within 5-minute sync cooldown and cached catalog (even empty) already known: skip redundant network hit!
+            if cachedCatalog != nil,
                let syncedAt = lastSyncedAt[stored.dsid],
                Date().timeIntervalSince(syncedAt) < 300 {
                 session = candidateSession
                 context = rebuiltContext
-                pageState = .catalogReady
+                pageState = apps.isEmpty ? .catalogEmpty : .catalogReady
                 // Still backfill any legacy details missing localized/expanded fields.
-                scheduleDetailAndIconFetch(for: apps, session: candidateSession, force: false,
-                                           log: { line in TFLog.append(line) })
+                if !apps.isEmpty {
+                    scheduleDetailAndIconFetch(for: apps, session: candidateSession, force: false,
+                                               log: { line in TFLog.append(line) })
+                }
                 return
             }
 
@@ -1268,6 +1379,9 @@ final class TFHomeModel: ObservableObject {
                             guard self.accountEpoch == epoch else { return }
                             self.session = candidateSession
                             self.context = rebuiltContext
+                            if case .authenticating = self.pageState {
+                                self.pageState = self.apps.isEmpty ? .catalogEmpty : .catalogReady
+                            }
                         }
                         return
                     }
@@ -1297,6 +1411,17 @@ final class TFHomeModel: ObservableObject {
                             return
                         }
                         append("restore: L2 无感续期未通过（" + TFLogin.shortDescription(error) + "）")
+                        if !isSessionExpiredError(error) {
+                            await MainActor.run {
+                                guard self.accountEpoch == epoch else { return }
+                                self.session = candidateSession
+                                self.context = ctx
+                                if case .authenticating = self.pageState {
+                                    self.pageState = self.apps.isEmpty ? .catalogEmpty : .catalogReady
+                                }
+                            }
+                            return
+                        }
                     }
                 }
 
@@ -1360,8 +1485,13 @@ final class TFHomeModel: ObservableObject {
         detailTask?.cancel()
         phase = .working
         pageState = .authenticating(AppText.text("检查网络…"))
+        needsPhoneSelection = false
+        trustedPhones = []
+        awaitingPhoneSelection = false
         needsCode = false
+        awaitingCodeInput = false
         isSubmittingCode = false
+        verificationChannel = .trustedDevice
         code = ""
         networkDiagnosis = nil
         dsidConflict = false
@@ -1371,22 +1501,47 @@ final class TFHomeModel: ObservableObject {
         lines = []
         probe = nil
         TFLog.reset()
-        if !accountSummary.isEmpty {
-            TFLog.append(accountSummary)
-            lines = [accountSummary]
+        let email = email.trimmingCharacters(in: .whitespaces)
+        let password = password
+        let runSummary: String
+        if !accountRosterSummary.isEmpty {
+            runSummary = accountRosterSummary + " | using " + TFHomeModel.mask(email)
+        } else if !email.isEmpty {
+            runSummary = "using " + TFHomeModel.mask(email)
+        } else {
+            runSummary = accountSummary
+        }
+        accountSummary = runSummary
+        if !runSummary.isEmpty {
+            TFLog.append(runSummary)
+            lines = [runSummary]
         }
 
+        let epoch = accountEpoch
         let relay = TFLogin.CodeRelay { [weak self] in
             Task { @MainActor in
-                guard let self, self.phase == .working else { return }
+                guard let self, self.accountEpoch == epoch, self.phase == .working else { return }
+                self.awaitingCodeInput = true
                 self.isSubmittingCode = false
+                let elapsed = Date().timeIntervalSince(self.lastPhoneSheetDismissedAt)
+                if elapsed < 0.45 {
+                    let waitNs = UInt64((0.45 - elapsed) * 1_000_000_000)
+                    try? await Task.sleep(nanoseconds: waitNs)
+                    guard self.accountEpoch == epoch, self.phase == .working, self.awaitingCodeInput else { return }
+                }
                 self.needsCode = true
             }
         }
+        let phoneRelay = TFLogin.PhoneRelay { [weak self] phones in
+            Task { @MainActor in
+                guard let self, self.accountEpoch == epoch, self.phase == .working else { return }
+                self.trustedPhones = phones
+                self.awaitingPhoneSelection = true
+                self.needsPhoneSelection = true
+            }
+        }
         self.relay = relay
-        let email = email.trimmingCharacters(in: .whitespaces)
-        let password = password
-        let epoch = accountEpoch
+        self.phoneRelay = phoneRelay
         TFSessionStore.lastAccountEmail = email
 
         task = Task { [weak self] in
@@ -1397,9 +1552,10 @@ final class TFHomeModel: ObservableObject {
                     self.push(line)
                 }
             }
-            let gsaDNS = await TFDoh.probe("gsa.apple.com", log: append)
-            let tfDNS = await TFDoh.probe("testflight.apple.com", log: append)
-            let reachability = await TFGSA.probe(log: append)
+            async let gsaDNSFuture = TFDoh.probe("gsa.apple.com", log: append)
+            async let tfDNSFuture = TFDoh.probe("testflight.apple.com", log: append)
+            async let reachabilityFuture = TFGSA.probe(log: append)
+            let (gsaDNS, tfDNS, reachability) = await (gsaDNSFuture, tfDNSFuture, reachabilityFuture)
             guard !Task.isCancelled else { return }
             let stillActive = await MainActor.run { () -> Bool in
                 guard let self, self.accountEpoch == epoch else { return false }
@@ -1410,11 +1566,25 @@ final class TFHomeModel: ObservableObject {
             }
             guard stillActive else { return }
             do {
-                let context = try await TFLogin.signIn(email: email, password: password,
-                                                       relay: relay, log: append)
+                let context = try await TFLogin.signIn(
+                    email: email,
+                    password: password,
+                    relay: relay,
+                    phoneRelay: phoneRelay,
+                    onChallenge: { [weak self] channel in
+                        Task { @MainActor in
+                            guard let self, self.accountEpoch == epoch else { return }
+                            self.verificationChannel = channel
+                        }
+                    },
+                    log: append
+                )
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     guard let self, self.accountEpoch == epoch else { return }
+                    self.awaitingPhoneSelection = false
+                    self.needsPhoneSelection = false
+                    self.awaitingCodeInput = false
                     self.needsCode = false
                     self.isSubmittingCode = false
                     self.pageState = .authenticating(AppText.text("建立 TestFlight 会话…"))
@@ -1467,10 +1637,19 @@ final class TFHomeModel: ObservableObject {
 
     func cancelSignIn() {
         let activeRelay = relay
+        let activePhoneRelay = phoneRelay
         relay = nil
+        phoneRelay = nil
         task?.cancel()
         task = nil
-        Task { await activeRelay?.cancel() }
+        Task {
+            await activeRelay?.cancel()
+            await activePhoneRelay?.cancel()
+        }
+        awaitingPhoneSelection = false
+        needsPhoneSelection = false
+        trustedPhones = []
+        awaitingCodeInput = false
         needsCode = false
         isSubmittingCode = false
         code = ""
@@ -1482,13 +1661,35 @@ final class TFHomeModel: ObservableObject {
         }
     }
 
+    func selectPhone(_ phone: TFLogin.TrustedPhone) {
+        awaitingPhoneSelection = false
+        lastPhoneSheetDismissedAt = Date()
+        needsPhoneSelection = false
+        verificationChannel = .sms(phoneDisplay: phone.displayNumber)
+        UX.feedback()
+        Task { await phoneRelay?.select(phone.id) }
+    }
+
+    func handlePhoneSheetDismissed() {
+        if phase == .working && awaitingPhoneSelection {
+            cancelSignIn()
+        }
+    }
+
     func submitCode() {
         let value = code.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
+        awaitingCodeInput = false
         isSubmittingCode = true
         code = ""
         UX.feedback()
         Task { await relay?.submit(value) }
+    }
+
+    func handleCodeSheetDismissed() {
+        if phase == .working && awaitingCodeInput {
+            cancelSignIn()
+        }
     }
 
     func refreshCatalog(force: Bool = true) async {
@@ -1529,8 +1730,9 @@ final class TFHomeModel: ObservableObject {
 
     nonisolated private static func detailNeedsUpgrade(_ detail: TFAppDetail?) -> Bool {
         guard let detail else { return true }
-        // Refresh cached details created before 3-bucket availability classification or missing developer fallback.
+        // Refresh cached details created before 3-bucket availability classification, multi-platform builds, or developer fallback.
         if detail.availability == nil { return true }
+        if detail.availability != .previouslyTested && detail.platformBuilds == nil { return true }
         if detail.availability == .previouslyTested && detail.developerName.isEmpty { return true }
         if detail.compatibilityStatement == "iPAD ONLY" { return true }
         // If a multi-platform removed app previously cached its macOS icon instead of its iOS icon, refresh once.
@@ -1764,6 +1966,10 @@ final class TFHomeModel: ObservableObject {
 
     private func handleSignInError(_ error: Error) {
         phase = .idle
+        awaitingPhoneSelection = false
+        needsPhoneSelection = false
+        trustedPhones = []
+        awaitingCodeInput = false
         needsCode = false
         isSubmittingCode = false
         proxyBypassed = TFNet.didBypassProxy
@@ -1778,7 +1984,7 @@ final class TFHomeModel: ObservableObject {
         }
 
         let raw = TFLogin.shortDescription(error)
-        TFLog.append("失败：\(raw)")
+        append("失败：\(raw)")
 
         let facts = transportFacts()
         if TFNet.looksBlocked(status: nil, error: error, hosts: ["gsa.apple.com", "testflight.apple.com"]),
@@ -1788,54 +1994,102 @@ final class TFHomeModel: ObservableObject {
             return
         }
 
+        let vpnOrProxy = LocalHostRecord.proxyOrVPNActive || probe?.fakeIP != nil
+        let (message, kind) = Self.classifySignInError(raw, vpnOrProxy: vpnOrProxy)
+        pageState = .authFailed(message, kind)
+    }
+
+    nonisolated static func classifySignInError(_ raw: String, vpnOrProxy: Bool) -> (message: String, kind: AuthFailureKind) {
         let lower = raw.lowercased()
+
+        if lower.contains("-20209") || lower.contains("account locked") || lower.contains("account is locked") {
+            return (
+                AppText.text("该 Apple 账号当前处于安全锁定状态，请先前往 account.apple.com 解锁后再试。"),
+                .standard
+            )
+        }
+
+        let isCodeRateLimited = lower.contains("http 423")
+            || lower.contains("(423)")
+            || lower.contains("toomanycodessent")
+            || lower.contains("toomanycodesvalidated")
+            || lower.contains("securitycodelocked")
+            || lower.contains("securitycodecooldown")
+            || lower.contains("-28248")
+            || lower.contains("-22421")
+        if isCodeRateLimited {
+            return (
+                AppText.text("Apple 已暂时限制该账号的验证码请求，通常是短时间内尝试次数过多所致。请暂停重试并等待一段时间后再试，也可前往 account.apple.com 检查账号状态。"),
+                .rateLimited
+            )
+        }
+
+        let isBadCode = lower.contains("did not confirm the sms code")
+            || lower.contains("did not confirm the 2fa code")
+            || lower.contains("2fa must contain six digits")
+            || lower.contains("-21669")
+            || (lower.contains("verify/phone/securitycode") && lower.contains("400"))
+        if isBadCode {
+            return (
+                AppText.text("验证码未通过 Apple 验证（可能输入有误、已过期或填入了旧短信验证码）。请重试并等待最新验证码送达后再输入。"),
+                .standard
+            )
+        }
+
+        if lower.contains("no trusted sms phone") || lower.contains("no trusted phone") {
+            return (
+                AppText.text("该 Apple 账号没有可用于短信验证的受信任手机号，请先前往 account.apple.com 添加受信任电话号码后重试。"),
+                .standard
+            )
+        }
+
         if Self.isMultiPhoneVerificationError(raw) {
-            pageState = .authFailed(
+            return (
                 AppText.text("当前暂不支持选择多个受信任号码验证。请在已登录该 Apple 账号的设备上前往「设置 › Apple 账户 › 登录与安全 › 获取验证码」，然后重试。"),
                 .standard
             )
-            return
+        }
+
+        if lower.contains("requested verification again after 2fa") {
+            return (
+                AppText.text("Apple 要求重新验证本次登录，请重试；若反复出现请稍等片刻再试。"),
+                .standard
+            )
         }
 
         let is503 = lower.contains("503") || lower.contains("rate") || lower.contains("too many")
-        let vpnOrProxy = LocalHostRecord.proxyOrVPNActive || probe?.fakeIP != nil
         if is503 && vpnOrProxy {
-            pageState = .authFailed(
+            return (
                 AppText.text("检测到代理或 VPN 正在运行，可能会拦截或导致 Apple 登录被拒。建议暂时关闭 VPN，或在代理中将以下 Apple 域名设为直连后重试。"),
                 .vpnOrProxy503
             )
-            return
         }
         if is503 {
-            pageState = .authFailed(
+            return (
                 AppText.text("Apple 暂时拒绝了本次登录请求。若开启了代理或 VPN 建议先关闭后重试；否则请稍等约 30 分钟后再试，避免连续重试。"),
                 .rateLimited
             )
-            return
         }
         if lower.contains("password") || lower.contains("incorrect") || lower.contains("invalid")
             || lower.contains("bad credentials") || lower.contains("-20101") || lower.contains("-22406") {
-            pageState = .authFailed(
+            return (
                 AppText.text("Apple 账号或密码验证未通过，请在右上角头像中检查或更新账号后重试。"),
                 .standard
             )
-            return
         }
         if lower.contains("401") || lower.contains("403") {
-            pageState = .authFailed(
+            return (
                 AppText.text("登录凭据未通过验证，请重新尝试；详细原因已记录在诊断日志中。"),
                 .standard
             )
-            return
         }
         if vpnOrProxy {
-            pageState = .authFailed(
+            return (
                 AppText.text("连接 Apple 服务时出现异常，可能与当前代理或 VPN 有关。建议关闭 VPN 或设为直连后重试，详情可在日志中查看。"),
                 .vpnOrProxy503
             )
-            return
         }
-        pageState = .authFailed(
+        return (
             AppText.text("连接 Apple 登录服务失败，请检查网络后重试；详细错误已记录在诊断日志中。"),
             .standard
         )
@@ -1849,17 +2103,17 @@ final class TFHomeModel: ObservableObject {
         return text.contains("[401 ") || text.contains("[403 ")
     }
 
-    /// Distinguishes genuine multi-trusted-phone/SMS 2FA challenges from unrelated errors
-    /// whose text happens to contain `"iphone"` (such as `"no usable iphone identity"`).
+    /// Distinguishes genuine multi-trusted-phone selection errors from unrelated SMS / HTTP
+    /// errors (such as HTTP 423 rate-limits, HTTP 400 wrong codes, or `"no usable iphone identity"`).
     nonisolated static func isMultiPhoneVerificationError(_ raw: String) -> Bool {
         let lower = raw.lowercased()
-        return lower.contains("trusted phone")
-            || lower.contains("phone number")
-            || lower.contains("trusted number")
-            || lower.contains("sms")
-            || lower.contains("phoneid")
-            || lower.contains("phone_id")
-            || (lower.contains("select") && lower.contains("number"))
+        return lower.contains("multiple sms numbers")
+            || lower.contains("multiple trusted phone")
+            || lower.contains("provide a phone-selection callback")
+            || lower.contains("select a trusted number")
+            || lower.contains("missing phoneid")
+            || lower.contains("missing phone_id")
+            || (lower.contains("select") && lower.contains("trusted") && lower.contains("number"))
     }
 
     // MARK: - Unattended Automation Hooks (Debug Only)
@@ -1929,14 +2183,48 @@ final class TFHomeModel: ObservableObject {
     // MARK: - Row Actions (Download / Cancel / Install / Delete)
 
     func rowState(_ app: TFBetaApp) -> TFRowState {
-        if let state = rows[app.id], state.stage != .idle { return state }
+        if let state = rows[app.id], state.stage != .idle {
+            let activeBuild = activeDownloadBuilds[app.id]
+            if activeBuild == nil || activeBuild?.isNativeToPhone == true {
+                return state
+            }
+            // A non-iOS build (e.g. Apple TV) finished downloading; do not mark the iPhone list row as ready to install.
+            if state.stage != .done {
+                return state
+            }
+        }
         if let url = productURL(for: app) {
             var state = TFRowState()
             state.stage = .done
             state.output = url
             return state
         }
-        return rows[app.id] ?? TFRowState()
+        return TFRowState()
+    }
+
+    func rowState(_ app: TFBetaApp, build: TFPlatformBuild?) -> TFRowState {
+        guard let build else { return rowState(app) }
+        if let state = rows[app.id], state.stage != .idle {
+            if let active = activeDownloadBuilds[app.id] {
+                if active.id == build.id { return state }
+            } else if build.isNativeToPhone {
+                return state
+            }
+        }
+        if let url = productURL(for: app, buildID: build.buildID) {
+            var state = TFRowState()
+            state.stage = .done
+            state.output = url
+            return state
+        }
+        return TFRowState()
+    }
+
+    func productURL(for app: TFBetaApp, buildID: String?) -> URL? {
+        guard let buildID, !buildID.isEmpty else { return productURL(for: app) }
+        let bundle = products[app.id] ?? details[app.id]?.bundleID ?? app.bundleID
+        guard !bundle.isEmpty else { return nil }
+        return TFProducts.product(bundle: bundle, buildID: buildID)?.ipa
     }
 
     func productURL(for app: TFBetaApp) -> URL? {
@@ -1951,7 +2239,7 @@ final class TFHomeModel: ObservableObject {
         return nil
     }
 
-    func start(_ app: TFBetaApp) {
+    func start(_ app: TFBetaApp, build targetBuild: TFPlatformBuild? = nil) {
         guard !(rows[app.id]?.isBusy ?? false) else { return }
         guard let session else {
             rows[app.id] = failed(AppText.text("请先登录后再下载"))
@@ -1982,19 +2270,45 @@ final class TFHomeModel: ObservableObject {
 
         let handle = TFTransferHandle()
         let token = UUID()
+        let startedAt = ProcessInfo.processInfo.systemUptime
         runs[app.id] = handle
         downloadTokens[app.id] = token
+        if let targetBuild {
+            activeDownloadBuilds[app.id] = targetBuild
+        } else {
+            activeDownloadBuilds.removeValue(forKey: app.id)
+        }
+        recentOutcomes.removeValue(forKey: app.id)
+        foregroundFallbackAppIDs.remove(app.id)
+        transferMetrics[app.id] = TransferMetrics(bytes: 0, sampledAt: startedAt)
+        lastProgressPublish[app.id] = 0
         var state = TFRowState()
         state.stage = .resolving
         rows[app.id] = state
         installFailedAppIDs.remove(app.id)
         installNeedsChannelAppIDs.remove(app.id)
+        updateTFBackgroundExecution()
 
         let progress: @Sendable (Int64, Int64) -> Void = { received, total in
             Task { @MainActor in
                 guard self.downloadTokens[app.id] == token else { return }
                 var current = self.rows[app.id] ?? TFRowState()
                 guard current.stage == .downloading else { return }
+                let now = ProcessInfo.processInfo.systemUptime
+                if var metric = self.transferMetrics[app.id] {
+                    if now - metric.sampledAt >= 0.2 || (total > 0 && received >= total) {
+                        metric.record(bytes: received, at: now)
+                        self.transferMetrics[app.id] = metric
+                    }
+                } else {
+                    self.transferMetrics[app.id] = TransferMetrics(bytes: received, sampledAt: now)
+                }
+                let lastPub = self.lastProgressPublish[app.id] ?? 0
+                let finished = total > 0 && received >= total
+                if !finished && now - lastPub < 0.1 && current.total > 0 {
+                    return
+                }
+                self.lastProgressPublish[app.id] = now
                 current.received = received
                 current.total = total > 0 ? total : current.total
                 self.rows[app.id] = current
@@ -2030,7 +2344,13 @@ final class TFHomeModel: ObservableObject {
                 let udid = hardware.map { String(format: "%02x", $0) }.joined()
                 let envelope = try TFDownload.envelope(dsid: resolvedContext.dsid, headers: resolvedContext.headers,
                                                        storeCookies: resolvedContext.storeCookies, udid: udid)
-                let buildID = try await TFAPI.buildID(appID: app.id, session: session, log: append)
+                let targetPlatform = targetBuild?.platform ?? "ios"
+                let buildID: String
+                if let explicitID = targetBuild?.buildID, !explicitID.isEmpty {
+                    buildID = (try? await TFAPI.buildID(appID: app.id, platform: targetPlatform, session: session, log: append)) ?? explicitID
+                } else {
+                    buildID = try await TFAPI.buildID(appID: app.id, platform: targetPlatform, session: session, log: append)
+                }
                 let metadata = try await TFAPI.installMetadata(appID: app.id, buildID: buildID,
                                                                session: session, headers: resolvedContext.headers,
                                                                dsid: resolvedContext.dsid, hardware20: hardware,
@@ -2044,7 +2364,16 @@ final class TFHomeModel: ObservableObject {
                 }
                 await MainActor.run {
                     guard self.downloadTokens[app.id] == token else { return }
-                    self.mark(app.id, stage: .downloading)
+                    self.transferMetrics[app.id] = TransferMetrics(bytes: 0, sampledAt: ProcessInfo.processInfo.systemUptime)
+                    self.lastProgressPublish[app.id] = 0
+                    if self.rows[app.id]?.stage != .paused {
+                        self.mark(app.id, stage: .downloading)
+                    }
+                    // Appear in DownloadsView and tab badge only once metadata is ready
+                    // and the actual package transfer begins, matching App Store downloads.
+                    self.registerActiveDownload(app, bundleOverride: bundle)
+                    self.syncActiveBadge()
+                    self.updateTFBackgroundExecution()
                 }
                 let report = try await TFDownload.run(
                     bundle: bundle,
@@ -2054,15 +2383,29 @@ final class TFHomeModel: ObservableObject {
                     metadata: metadata,
                     expect: self.expectation,
                     buildID: buildID,
-                    versionLabel: app.latestVersion,
+                    versionLabel: targetBuild?.shortVersion.isEmpty == false ? targetBuild?.shortVersion : app.latestVersion,
+                    platform: targetPlatform,
                     handle: handle,
                     progress: progress,
                     stage: { name in
-                        if name == "verifying" {
-                            Task { @MainActor in
-                                guard self.downloadTokens[app.id] == token else { return }
+                        Task { @MainActor in
+                            guard self.downloadTokens[app.id] == token else { return }
+                            if name == "verifying" {
                                 self.mark(app.id, stage: .verifying)
+                                self.syncActiveBadge()
+                                self.updateTFBackgroundExecution()
+                            } else if name == "downloading", self.rows[app.id]?.stage == .paused {
+                                self.mark(app.id, stage: .downloading)
+                                self.syncActiveBadge()
+                                self.updateTFBackgroundExecution()
                             }
+                        }
+                    },
+                    onForegroundFallback: {
+                        Task { @MainActor in
+                            guard self.downloadTokens[app.id] == token else { return }
+                            self.foregroundFallbackAppIDs.insert(app.id)
+                            self.updateTFBackgroundExecution()
                         }
                     },
                     refresh: refresh,
@@ -2076,14 +2419,59 @@ final class TFHomeModel: ObservableObject {
                     done.total = Int64(report.outputBytes)
                     done.received = Int64(report.outputBytes)
                     self.rows[app.id] = done
+                    let isNativePlatform = targetBuild?.isNativeToPhone ?? true
                     let key = bundle.lowercased()
-                    self.checkedProductBundles.insert(key)
-                    self.resolvedProductURLs[key] = report.output
+                    if isNativePlatform {
+                        self.checkedProductBundles.insert(key)
+                        self.resolvedProductURLs[key] = report.output
+                    } else {
+                        self.checkedProductBundles.remove(key)
+                        self.resolvedProductURLs.removeValue(forKey: key)
+                    }
                     if var detail = self.details[app.id], self.applyLocalDisplayOverrides(to: &detail, app: app) {
                         TFSessionStore.saveDetail(detail)
                         self.details[app.id] = detail
                     }
-                    TFProductIndex.shared.refresh()
+                    let detail = self.details[app.id]
+                    let completedItem = TFProductItem(
+                        appID: app.id,
+                        bundleID: bundle,
+                        buildID: buildID,
+                        displayName: detail?.name ?? app.name,
+                        shortVersion: targetBuild?.shortVersion.isEmpty == false ? (targetBuild?.shortVersion ?? "") : (detail?.shortVersion ?? app.latestVersion ?? ""),
+                        buildVersion: targetBuild?.buildVersion.isEmpty == false ? (targetBuild?.buildVersion ?? "") : (detail?.buildVersion ?? ""),
+                        fileURL: report.output,
+                        fileSize: Int64(report.outputBytes),
+                        modifiedAt: Date(),
+                        iconURL: self.iconFiles[app.id],
+                        iconColors: self.iconColors[app.id] ?? detail?.iconAsset?.colors,
+                        platform: targetPlatform
+                    )
+                    self.recentOutcomes[app.id] = TerminalOutcome(
+                        name: completedItem.displayName,
+                        completed: true,
+                        bytes: Int64(report.outputBytes),
+                        fileURL: report.output,
+                        at: Date()
+                    )
+                    self.foregroundFallbackAppIDs.remove(app.id)
+                    TFProductIndex.shared.registerCompleted(completedItem)
+                    if isNativePlatform {
+                        let autoTarget = DownloadManager.ExternalAutoInstallTarget(
+                            id: UUID(),
+                            job: completedItem.makeInstallJob(),
+                            fileURL: report.output,
+                            iconURL: completedItem.iconURL,
+                            isTestFlight: true,
+                            onInstalled: nil
+                        )
+                        AppContainer.shared.downloads.enqueueExternalAutoInstall(autoTarget)
+                    }
+                    self.activeDownloads.removeAll { $0.id == app.id }
+                    self.transferMetrics.removeValue(forKey: app.id)
+                    self.lastProgressPublish.removeValue(forKey: app.id)
+                    self.syncActiveBadge()
+                    self.updateTFBackgroundExecution()
                     FairPlayPresentation.shared.markFilesChanged()
                     UX.success()
                     self.append("完成：\(report.output.lastPathComponent) \(report.outputBytes) B，成员 \(report.finalMembers)，加密 \(report.encryptedImages)")
@@ -2095,19 +2483,39 @@ final class TFHomeModel: ObservableObject {
                     if case TFError.cancelled = error { isCancelled = true }
                     else if error is CancellationError || (error as NSError).code == NSURLErrorCancelled || handle.isCancelled { isCancelled = true }
                     else { isCancelled = false }
+                    self.foregroundFallbackAppIDs.remove(app.id)
+                    self.transferMetrics.removeValue(forKey: app.id)
+                    self.lastProgressPublish.removeValue(forKey: app.id)
                     if isCancelled {
                         self.cleanupTemps(appID: app.id)
                         self.rows[app.id] = TFRowState()
+                        self.activeDownloadBuilds.removeValue(forKey: app.id)
+                        self.activeDownloads.removeAll { $0.id == app.id }
                         self.append("已取消：\(app.name)")
                     } else {
                         self.cleanupTemps(appID: app.id)
                         if self.isSessionExpiredError(error) {
                             self.pageState = .sessionExpired
                         }
-                        self.rows[app.id] = self.failed(self.message(for: error))
+                        let msg = self.message(for: error)
+                        let displayName = self.details[app.id]?.name ?? app.name
+                        self.recentOutcomes[app.id] = TerminalOutcome(
+                            name: displayName,
+                            completed: false,
+                            bytes: 0,
+                            fileURL: nil,
+                            at: Date()
+                        )
+                        self.rows[app.id] = self.failed(msg)
+                        if self.activeDownloads.contains(where: { $0.id == app.id }) {
+                            self.registerActiveDownload(app)
+                        }
+                        AppContainer.shared.downloads.notifyExternalDownloadFailed(name: displayName, message: msg)
                         UX.warning()
-                        self.append("失败：\(self.message(for: error))")
+                        self.append("失败：\(msg)")
                     }
+                    self.syncActiveBadge()
+                    self.updateTFBackgroundExecution()
                 }
             }
             await MainActor.run {
@@ -2120,15 +2528,126 @@ final class TFHomeModel: ObservableObject {
         }
     }
 
+    func pause(_ app: TFBetaApp) {
+        guard let handle = runs[app.id], var state = rows[app.id],
+              state.stage == .resolving || state.stage == .installing || state.stage == .downloading else { return }
+        handle.pause()
+        state.stage = .paused
+        rows[app.id] = state
+        transferMetrics.removeValue(forKey: app.id)
+        lastProgressPublish.removeValue(forKey: app.id)
+        syncActiveBadge()
+        updateTFBackgroundExecution()
+        append("已暂停：\(app.name)")
+    }
+
+    func resume(_ app: TFBetaApp) {
+        guard let handle = runs[app.id], var state = rows[app.id], state.stage == .paused else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        transferMetrics[app.id] = TransferMetrics(bytes: state.received, sampledAt: now)
+        lastProgressPublish[app.id] = 0
+        state.stage = (state.total > 0 || state.received > 0) ? .downloading : .installing
+        rows[app.id] = state
+        handle.resume()
+        syncActiveBadge()
+        updateTFBackgroundExecution()
+        append("已继续：\(app.name)")
+    }
+
+    func pauseAllDownloads() {
+        for item in activeDownloads {
+            pause(item.app)
+        }
+    }
+
+    func resumeAllDownloads() {
+        for item in activeDownloads {
+            resume(item.app)
+        }
+    }
+
     func cancel(_ app: TFBetaApp) {
         downloadTokens[app.id] = nil
         runs[app.id]?.cancel()
         tasks[app.id]?.cancel()
         runs[app.id] = nil
         tasks[app.id] = nil
+        foregroundFallbackAppIDs.remove(app.id)
+        recentOutcomes.removeValue(forKey: app.id)
+        transferMetrics.removeValue(forKey: app.id)
+        lastProgressPublish.removeValue(forKey: app.id)
+        activeDownloads.removeAll { $0.id == app.id }
         cleanupTemps(appID: app.id)
         rows[app.id] = TFRowState()
+        activeDownloadBuilds.removeValue(forKey: app.id)
+        syncActiveBadge()
+        updateTFBackgroundExecution()
         append("已取消：\(app.name)")
+    }
+
+    func dismissFailedDownload(_ appID: String) {
+        activeDownloads.removeAll { $0.id == appID }
+        recentOutcomes.removeValue(forKey: appID)
+        transferMetrics.removeValue(forKey: appID)
+        lastProgressPublish.removeValue(forKey: appID)
+        if rows[appID]?.stage == .failed {
+            rows[appID] = TFRowState()
+        }
+        syncActiveBadge()
+        updateTFBackgroundExecution()
+    }
+
+    func metrics(for appID: String) -> TransferMetrics? {
+        transferMetrics[appID]
+    }
+
+    private func registerActiveDownload(_ app: TFBetaApp, bundleOverride: String? = nil) {
+        let detail = details[app.id]
+        let name = detail?.name ?? app.name
+        let activeBuild = activeDownloadBuilds[app.id]
+        let version: String = {
+            if let activeBuild, !activeBuild.versionSummary.isEmpty {
+                let full = "v\(activeBuild.versionSummary)"
+                return full.count <= 10 ? full : (activeBuild.shortVersion.isEmpty ? full : "v\(activeBuild.shortVersion)")
+            }
+            if let detail, !detail.versionSummary.isEmpty {
+                let full = "v\(detail.versionSummary)"
+                return full.count <= 10 ? full : (detail.shortVersion.isEmpty ? full : "v\(detail.shortVersion)")
+            }
+            if let latest = app.latestVersion, !latest.isEmpty {
+                return "v\(latest)"
+            }
+            return ""
+        }()
+        let bundle = (bundleOverride?.isEmpty == false ? bundleOverride : nil)
+            ?? (detail?.bundleID.isEmpty == false ? detail?.bundleID : nil)
+            ?? products[app.id]
+            ?? app.bundleID
+        let existingIndex = activeDownloads.firstIndex { $0.id == app.id }
+        let startedAt = existingIndex.map { activeDownloads[$0].startedAt } ?? Date()
+        let entry = TFActiveDownloadItem(
+            app: app,
+            displayName: name,
+            versionLabel: version,
+            bundleID: bundle,
+            iconURL: iconFiles[app.id],
+            iconColors: iconColors[app.id] ?? detail?.iconAsset?.colors,
+            startedAt: startedAt,
+            platform: activeBuild?.platform
+        )
+        if let idx = existingIndex {
+            activeDownloads[idx] = entry
+        } else {
+            activeDownloads.insert(entry, at: 0)
+        }
+    }
+
+    private func syncActiveBadge() {
+        let count = activeDownloads.filter { item in
+            let stage = rows[item.id]?.stage ?? .idle
+            return stage == .downloading || stage == .verifying
+        }.count
+        TFTransferBadge.shared.update(count)
     }
 
     func cancelAllDownloads() {
@@ -2140,6 +2659,13 @@ final class TFHomeModel: ObservableObject {
         for (_, t) in tasks { t.cancel() }
         runs.removeAll()
         tasks.removeAll()
+        foregroundFallbackAppIDs.removeAll()
+        recentOutcomes.removeAll()
+        transferMetrics.removeAll()
+        lastProgressPublish.removeAll()
+        activeDownloads.removeAll()
+        syncActiveBadge()
+        updateTFBackgroundExecution()
     }
 
     func deleteLocalProduct(_ app: TFBetaApp) {
@@ -2224,8 +2750,7 @@ final class TFHomeModel: ObservableObject {
                     guard let self else { return }
                     self.installingAppIDs.remove(app.id)
                     if outcome.installed {
-                        self.installedAppIDs.insert(app.id)
-                        self.installNotes[app.id] = AppText.text("已安装")
+                        self.installNotes[app.id] = nil
                         UX.success()
                     } else {
                         self.installNotes[app.id] = AppText.text("安装未完成")
@@ -2283,7 +2808,7 @@ final class TFHomeModel: ObservableObject {
         }
         let text = TFLogin.shortDescription(error)
         TFLog.append("row-error: " + text)
-        if text.contains("没有可用的 iOS build") {
+        if text.contains("没有可用的 ") && text.contains(" build") {
             return AppText.text("此版本暂不支持当前设备")
         }
         if text.contains("解析不到") && text.contains("bundleId") {
@@ -2333,7 +2858,7 @@ final class TFHomeModel: ObservableObject {
         if checkedProductBundles.contains(key) {
             return resolvedProductURLs[key]
         }
-        let url = TFProducts.newest(bundle: bundle)?.ipa
+        let url = TFProducts.newest(bundle: bundle, matchingPlatform: "ios")?.ipa
         checkedProductBundles.insert(key)
         if let url { resolvedProductURLs[key] = url }
         return url

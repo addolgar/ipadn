@@ -106,6 +106,10 @@ struct DecryptRecord: Codable, Identifiable, Sendable {
     var outputIdentity: String?
     /// Certificate name when the output was re-signed and can be installed directly.
     var signedWith: String?
+    /// True when the source IPA came from a TestFlight download so decrypted
+    /// outputs and history retain the TestFlight indicator even after removing
+    /// the original IPA.
+    var isTestFlight: Bool? = nil
     var state: DecryptRecordState = .running
     var counts = DecryptCounts()
     var verification: DecryptVerificationResult = .none

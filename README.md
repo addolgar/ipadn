@@ -7,7 +7,7 @@
 **在 iPhone 和 iPad 上搜索、下载、安装你拥有的 App。**
 支持 iPhone、iPad、Apple TV 与 Mac 应用，包括历史版本与已下架应用。
 
-✨ **v2.3.3 Apple 下载报错修复与诊断完善 · 下载多选/统一撤销、SDK 速查与全量性能安全加固** · 📢 **反馈与新版优先前往 [官方 Telegram 频道](https://t.me/ipadn_official)**
+✨ **v2.3.5 修复 iOS 16/27 闪退与 iPadOS 导航 · TestFlight 支持 Apple TV 多平台与校验修复 · 自定义 177 商店地区 · FairPlay/登录/批量导入修复** · 📢 **反馈与新版优先前往 [官方 Telegram 频道](https://t.me/ipadn_official)**
 
 [![最新版本](https://img.shields.io/github/v/release/mengangs/ipadn?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC&logo=github&logoColor=white&labelColor=2E3136&color=3A6EA5)](https://github.com/mengangs/ipadn/releases/latest)
 [![Telegram 频道](https://img.shields.io/badge/Telegram-%40ipadn__official-2C82A9?logo=telegram&logoColor=white&labelColor=2E3136)](https://t.me/ipadn_official)
@@ -44,6 +44,20 @@
 </p>
 
 ---
+
+## 2.3.5 更新
+
+- **修复 iOS 16 / iOS 27 Beta 闪退与 iPadOS 专业模式导航栏异常**：移除强链接 iOS 17+/18+ 的 `UnevenRoundedRectangle` 与全部 `.onGeometryChange` 根治 iOS 16.0–16.2 闪退；修复 iOS 27.2 beta 2 应用详情加载历史版本崩溃；重构 iPadOS 全屏/专业模式导航栈隔离，修复标题丢失与工具栏图标跨标签泄露。
+- **TestFlight 支持 Apple TV 多平台下载、校验修复与详情页视觉优化**：详情页支持切换并下载 Apple TV（tvOS）等测试包（按平台独立索引，互不覆盖）；全应用在单色 TestFlight 图标旁并列展示单色客户端标识并在任务/包体详情显示对应客户端与最低系统版本，Apple TV 测试包下载后不显示「安装」且不触发自动安装；流式读取 Mach-O 头部与 FAT 32/64 位 `cryptid` 校验修复大型/多变体游戏误报「产物校验失败，已清理」；修复详情页顶部浅色虚化断层异常。
+- **自定义 177 个 Apple 商店地区**：在「设置 › 外观与图标 › 商店地区」开放管理全部 177 个商店地区，支持中英文名称与 ISO‑2 代码搜索筛选、点击勾选、拖拽排序、国旗展示及「恢复默认」。
+- **修复 FairPlay 高熵解密误拒、首次获取旧版报错与批量导入体验**：放行经反汇编确认的高熵插件（如 `_codecs_cn`）；完善登录 `5020` / 2FA 提示与 `SAPSigner` 阶段诊断；未购免费应用首次获取许可后自动刷新缓存并退避重试加载历史版本；修复「应用包」批量导入中途跳进详情打断队列的问题，新增实时计数与批量提示。详见 [更新说明](RELEASE_NOTES.md)。
+
+## 2.3.4 更新
+
+- **TestFlight 同步下载、后台续传、自动安装与灵动岛实时同步**：TestFlight 实际开始下载后实时同步到「下载」页顶部与底部角标，接入后台传输、`resumeData` 真暂停/断点续传、CDN 链接过期自动刷新、全部暂停/继续及「下载完成后自动安装」；同步接入灵动岛与锁屏实时活动并修复后台百分比停滞问题，移除会话级「已安装」残留。
+- **全应用统一列表/极简单色 TestFlight 图标与状态切换动效**：「下载」与「应用包」取消多余的 TestFlight 分组并统一前置单色 TestFlight 图标，全面补齐「已解密」「解密详情/记录」「Wi‑Fi 传输」与「存储空间」的覆盖与持久标识；重构 `AppStoreActionButton` 与下载页/TestFlight 列表详情页按钮，实现获取 → 加载弧 → 进度环 → 暂停/继续胶囊 → 完成打钩 → 安装全链路弹性形变动效。
+- **根治切号反复弹验证码、多手机号 2FA 与 0 应用账号卡顿**：切号与启动优先静默恢复本地会话与 Cookie 快照不再误触发系统验证码；新增多受信任手机号选择器、修复 2FA 弹窗竞态与瞬时 `503` 重试，优化 0 应用缓存 0ms 切换与 `TFDoh` 2 秒并发探测。
+- **应用包侧滑撤销、居中弹窗、配对优化与 iOS 17.4+ 防护**：专业模式「应用包」5 类列表项左滑删除统一接入 5 秒原子撤销，长按/批量删除与全应用二次确认升级为原生居中 Alert，精简「账号」页冗余入口；本机配对左上角对称放置「取消配对」并修复 6 位配对码提醒与换行；新增 App Store 账单/条款报错引导（`3038 / 5111 / 2022 / 3002 / 5062 / 5304`）、原生安装 iOS 17.4+ 前置校验与 Bonjour 跨设备端口隔离。详见 [更新说明](RELEASE_NOTES.md)。
 
 ## 2.3.3 更新
 
@@ -204,7 +218,7 @@ https://raw.githubusercontent.com/mengangs/ipadn/main/altstore-source.json
 **使用步骤：**
 
 1. 打开 **账号 › TestFlight**，登录或通过右上角头像切换你已加入 TestFlight 测试的 Apple 账号（TestFlight 与主站 iOS 解密会话按 DSID 各自独立持久化，不串号，因此首次进入 TF 可能需要单独完成一次认证）。
-2. 列表自动归类为三栏：**测试中**（当前设备可下载安装的活跃 iOS 构建）、**平台不兼容**（如仅限 Mac / tvOS / visionOS 或仅限 iPad 的测试版）与 **以往测试**（已过期或已移除的旧列表，只读展示）。
+2. 列表自动归类为三栏：**测试中**（活跃可下载构建，若应用同时提供 iOS 与 Apple TV 等平台测试包，可在详情页切换平台直接下载）、**平台不兼容**（如仅限 Mac / visionOS / 仅限 iPad 的测试版）与 **以往测试**（已过期或已移除的旧列表，只读展示）。
 3. 点按下载可实时查看下载速度与剩余时间；带有注入 SINF 的加密包体通过 **原生安装**（需完成本机配对并开启 LocalDevVPN）可直接安装运行，**无需解密或重签**。你也可以将其导出/分享，或在开启「专业模式」后于 **应用包** 页进行本地查看与 `FairPlayCore` 解密。
 4. 若遇到无法加载目录、卡在加载或 401/网络异常，点开 TF 页内的 **网络与诊断**：可在 **跟随系统 / 强制直连 / 强制代理** 间切换，查看 DNS 路径与 Fake-IP 预检，并一键复制严格脱敏的诊断日志到 [官方 Telegram 频道](https://t.me/ipadn_official) 对应版本贴文下反馈。
 

@@ -305,10 +305,11 @@ enum AppStoreActionPhase: Equatable {
     case loading
     case downloading(Double)
     case processing
+    case completedCheck
 
     var isCircular: Bool {
         switch self {
-        case .loading, .downloading, .processing: return true
+        case .loading, .downloading, .processing, .completedCheck: return true
         case .capsule, .cloud: return false
         }
     }
@@ -318,25 +319,37 @@ enum AppStoreActionPhase: Equatable {
         return false
     }
 
+    var isProcessing: Bool {
+        if case .processing = self { return true }
+        return false
+    }
+
+    var isCompletedCheck: Bool {
+        if case .completedCheck = self { return true }
+        return false
+    }
+
     var isEnabled: Bool {
         switch self {
         case .capsule(_, _, let enabled), .cloud(let enabled): return enabled
-        case .loading, .downloading, .processing: return true
+        case .loading, .downloading, .processing, .completedCheck: return true
         }
     }
 }
 
-private struct PillButtonPressStyle: ButtonStyle {
+struct PillButtonPressStyle: ButtonStyle {
     let scale: CGFloat
     let opacity: Double
     @Environment(\.isEnabled) private var enabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.revealSuppressesPress) private var suppressesPress
     func makeBody(configuration: Configuration) -> some View {
+        let pressed = configuration.isPressed && !suppressesPress
         configuration.label
-            .opacity(configuration.isPressed ? opacity : (enabled ? 1 : 0.4))
-            .scaleEffect(configuration.isPressed && !reduceMotion ? scale : 1)
-            .animation(reduceMotion ? nil : .compatibleSnappy(duration: 0.14), value: configuration.isPressed)
-            .compatibleOnChange(of: configuration.isPressed) { down in if down { UX.prepare() } }
+            .opacity(pressed ? opacity : (enabled || suppressesPress ? 1 : 0.4))
+            .scaleEffect(pressed && !reduceMotion ? scale : 1)
+            .animation(reduceMotion ? nil : .compatibleSnappy(duration: 0.14), value: pressed)
+            .compatibleOnChange(of: pressed) { down in if down { UX.prepare() } }
     }
 }
 
@@ -346,6 +359,9 @@ struct AppStoreActionButton: View {
     let phase: AppStoreActionPhase
     var alignment: Alignment = .center
     var insideNavigationLink = false
+    var showsStopSquare = true
+    var ringSymbol = "pause.fill"
+    var usesSpinningProcessingRing = false
     var accessibilityLabelText: String? = nil
     var accessibilityValueText: String? = nil
     let action: () -> Void
@@ -360,7 +376,7 @@ struct AppStoreActionButton: View {
     @State private var pillHeight: CGFloat = 30
 
     private var morphAnimation: Animation? {
-        reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.88)
+        reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.84)
     }
 
     private var isCircular: Bool { phase.isCircular }
@@ -377,7 +393,7 @@ struct AppStoreActionButton: View {
     private var ringProgress: Double? {
         switch phase {
         case .downloading(let fraction): return fraction
-        case .loading, .processing: return nil
+        case .loading, .processing, .completedCheck: return nil
         case .capsule, .cloud: return nil
         }
     }
@@ -395,6 +411,8 @@ struct AppStoreActionButton: View {
     @ViewBuilder private var morphBody: some View {
         let circular = isCircular
         let cloud = phase.isCloud
+        let completedCheck = phase.isCompletedCheck
+        let processingRing = usesSpinningProcessingRing && phase.isProcessing
         let showPill = !circular && !cloud
         ZStack {
             ZStack {
@@ -404,10 +422,10 @@ struct AppStoreActionButton: View {
                     .animation(
                         reduceMotion
                             ? nil
-                            : (showPill ? .easeOut(duration: 0.16).delay(0.05) : .easeOut(duration: 0.13)),
+                            : (showPill ? .easeOut(duration: 0.18).delay(0.05) : .easeOut(duration: 0.12)),
                         value: showPill
                     )
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: activeFilled)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.20), value: activeFilled)
 
                 Text(LocalizedStringKey(activeTitle))
                     .font(.subheadline.weight(.bold))
@@ -421,10 +439,10 @@ struct AppStoreActionButton: View {
                     .animation(
                         reduceMotion
                             ? nil
-                            : (showPill ? .easeOut(duration: 0.16).delay(0.08) : .easeOut(duration: 0.10)),
+                            : (showPill ? .easeOut(duration: 0.18).delay(0.08) : .easeOut(duration: 0.10)),
                         value: showPill
                     )
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: activeTitle)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: activeTitle)
             }
             .frame(width: targetWidth, height: targetHeight)
             .clipShape(Capsule())
@@ -444,27 +462,40 @@ struct AppStoreActionButton: View {
                 )
 
             if circular {
-                ProgressRing(
-                    progress: ringProgress,
-                    showsStopSquare: true,
-                    size: ringSize,
-                    outerPadding: 0
-                )
+                Group {
+                    if completedCheck {
+                        CompletionRing(outerPadding: 0)
+                    } else if processingRing {
+                        SpinningRing(outerPadding: 0)
+                    } else {
+                        ProgressRing(
+                            progress: ringProgress,
+                            symbol: ringSymbol,
+                            showsStopSquare: showsStopSquare,
+                            size: ringSize,
+                            outerPadding: 0
+                        )
+                    }
+                }
                 .transition(
                     reduceMotion
                         ? .opacity
                         : .asymmetric(
                             insertion: .opacity
-                                .combined(with: .scale(scale: 0.80))
-                                .animation(.easeOut(duration: 0.18).delay(0.06)),
-                            removal: .opacity
                                 .combined(with: .scale(scale: 0.76))
-                                .animation(.easeIn(duration: 0.09))
+                                .animation(.spring(response: 0.30, dampingFraction: 0.82).delay(0.05)),
+                            removal: .opacity
+                                .combined(with: .scale(scale: 0.74))
+                                .animation(.easeIn(duration: 0.10))
                         )
                 )
             }
         }
         .frame(width: targetWidth, height: targetHeight)
+        .animation(morphAnimation, value: circular)
+        .animation(morphAnimation, value: cloud)
+        .animation(morphAnimation, value: completedCheck)
+        .animation(morphAnimation, value: processingRing)
         .background {
             Text(LocalizedStringKey(activeTitle))
                 .font(.subheadline.weight(.bold))
@@ -475,9 +506,11 @@ struct AppStoreActionButton: View {
                 .frame(minWidth: 74, minHeight: 30)
                 .hidden()
                 .accessibilityHidden(true)
-                .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
-                    if size.width > 0 { pillWidth = max(74, size.width) }
-                    if size.height > 0 { pillHeight = max(30, size.height) }
+                .compatibleOnGeometryChange(for: CGSize.self) { $0.size } action: { size in
+                    let nextWidth = max(74, size.width.rounded(.up))
+                    let nextHeight = max(30, size.height.rounded(.up))
+                    if size.width > 0, abs(nextWidth - pillWidth) > 0.5 { pillWidth = nextWidth }
+                    if size.height > 0, abs(nextHeight - pillHeight) > 0.5 { pillHeight = nextHeight }
                 }
         }
         .frame(minWidth: slotMinWidth, minHeight: 36, alignment: alignment)
@@ -589,7 +622,7 @@ struct ProgressRing: View {
                 .transition(.opacity)
             }
         }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.20), value: progress == nil)
+        .animation(reduceMotion ? nil : .spring(response: 0.30, dampingFraction: 0.86), value: progress == nil)
         .frame(width: size, height: size)
         .padding(outerPadding)
         .contentShape(Circle())
@@ -599,6 +632,7 @@ struct ProgressRing: View {
 /// The ring while a finished download is checked and prepared: an arc that
 /// keeps turning on the same track, so the ring never disappears mid-task.
 struct SpinningRing: View {
+    var outerPadding: CGFloat = 7
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var turning = false
     var body: some View {
@@ -610,13 +644,14 @@ struct SpinningRing: View {
                 .animation(reduceMotion ? nil : .linear(duration: 0.9).repeatForever(autoreverses: false), value: turning)
         }
         .frame(width: 30, height: 30)
-        .padding(7)
+        .padding(outerPadding)
         .onAppear { turning = true }
     }
 }
 
 /// Telegram's finished state: the ring closes and a check draws inside it.
 struct CompletionRing: View {
+    var outerPadding: CGFloat = 7
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var ring: CGFloat = 0.28
     @State private var check: CGFloat = 0
@@ -633,7 +668,7 @@ struct CompletionRing: View {
         }
         .frame(width: 30, height: 30)
         .scaleEffect(pop)
-        .padding(7)
+        .padding(outerPadding)
         .onAppear {
             guard !reduceMotion else { ring = 1; check = 1; return }
             withAnimation(.easeOut(duration: 0.25)) { ring = 1 }
@@ -778,7 +813,7 @@ private struct ScrolledUnderBarModifier: ViewModifier {
     let action: (Bool) -> Void
     func body(content: Content) -> some View {
         let threshold: CGFloat = verticalSizeClass == .compact ? 52 : 104
-        content.onGeometryChange(for: Bool.self) { proxy in
+        content.compatibleOnGeometryChange(for: Bool.self) { proxy in
             proxy.frame(in: .global).maxY < threshold
         } action: { action($0) }
     }
@@ -865,6 +900,99 @@ struct TagBadge: View {
     }
 }
 
+/// Monochrome 3-blade TestFlight propeller glyph matching the platform icon slot on list rows.
+private struct TestFlightPropellerShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let cx = rect.midX
+        let cy = rect.midY
+        let r = min(rect.width, rect.height) * 0.5
+        var path = Path()
+
+        let hubR = r * 0.17
+        path.addEllipse(in: CGRect(x: cx - hubR, y: cy - hubR, width: hubR * 2, height: hubR * 2))
+
+        let angles: [Double] = [-.pi / 2, .pi / 6, 5 * .pi / 6]
+        for angle in angles {
+            var blade = Path()
+            let baseW = r * 0.11
+            let midW = r * 0.21
+            let tipR = r * 0.96
+            let midR = r * 0.64
+
+            blade.move(to: CGPoint(x: -baseW, y: 0))
+            blade.addCurve(
+                to: CGPoint(x: 0, y: -tipR),
+                control1: CGPoint(x: -midW, y: -midR * 0.62),
+                control2: CGPoint(x: -midW * 0.85, y: -tipR * 0.96)
+            )
+            blade.addCurve(
+                to: CGPoint(x: baseW, y: 0),
+                control1: CGPoint(x: midW * 0.85, y: -tipR * 0.96),
+                control2: CGPoint(x: midW, y: -midR * 0.62)
+            )
+            blade.closeSubpath()
+
+            let transform = CGAffineTransform(translationX: cx, y: cy)
+                .rotated(by: CGFloat(angle + .pi / 2))
+            path.addPath(blade, transform: transform)
+        }
+        return path
+    }
+}
+
+/// Compact monochrome TestFlight squircle icon aligned to the metadata platform glyph slot.
+struct TestFlightIcon: View {
+    var size: CGFloat = 15
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
+                .fill(Color.secondary.opacity(0.85))
+            TestFlightPropellerShape()
+                .fill(.black)
+                .padding(size * 0.16)
+                .blendMode(.destinationOut)
+        }
+        .compositingGroup()
+        .frame(width: size, height: size)
+        .accessibilityLabel("TestFlight")
+    }
+}
+
+/// Compact monochrome client-platform icon paired beside `TestFlightIcon` or package metadata.
+struct PlatformGlyph: View {
+    let platform: String
+    var size: CGFloat = 14
+
+    static func symbol(for platform: String) -> String {
+        switch platform.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "appletvos", "tvos", "atv9", "apple tv": return "appletv"
+        case "xros", "visionos", "apple vision": return "visionpro"
+        case "ipad", "ipados": return "ipad"
+        case "osx", "macos", "mac": return "macbook"
+        case "ios", "iphoneos", "iphone": return "iphone"
+        default: return "shippingbox"
+        }
+    }
+
+    static func displayName(for platform: String) -> String {
+        switch platform.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "appletvos", "tvos", "atv9", "apple tv": return "Apple TV"
+        case "xros", "visionos", "apple vision": return "visionOS"
+        case "ipad", "ipados": return "iPad"
+        case "osx", "macos", "mac": return "Mac"
+        case "ios", "iphoneos", "iphone": return "iOS"
+        default: return platform
+        }
+    }
+
+    var body: some View {
+        Image(systemName: Self.symbol(for: platform))
+            .font(.system(size: size, weight: .medium))
+            .foregroundStyle(.secondary)
+            .accessibilityLabel(Self.displayName(for: platform))
+    }
+}
+
 /// Pure-Swift coordinate & phase math for window-synchronized skeleton shimmer.
 enum ShimmerLayoutMath {
     static let period: CFTimeInterval = 1.45
@@ -933,7 +1061,22 @@ private final class ShimmerTrackUIView: UIView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        syncAnimation(force: true)
+        if window == nil {
+            teardown()
+        } else {
+            syncAnimation(force: true)
+        }
+    }
+
+    func teardown() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradientLayer.removeAnimation(forKey: Self.animationKey)
+        gradientLayer.opacity = 0
+        CATransaction.commit()
+        lastAnimatedWidth = -1
+        lastAnimatedHeight = -1
+        lastWindowMinX = .nan
     }
 
     override func layoutSubviews() {
@@ -958,15 +1101,17 @@ private final class ShimmerTrackUIView: UIView {
 
     private func syncAnimation(force: Bool) {
         guard let window, !isReduceMotionEnabled, !UIAccessibility.isReduceMotionEnabled,
-              bounds.width > 1, bounds.height > 1 else {
-            gradientLayer.removeAnimation(forKey: Self.animationKey)
-            gradientLayer.opacity = 0
-            lastAnimatedWidth = -1
-            lastAnimatedHeight = -1
-            lastWindowMinX = .nan
+              bounds.width.isFinite, bounds.height.isFinite,
+              bounds.width > 1, bounds.height > 1,
+              window.bounds.width.isFinite, window.bounds.width > 1 else {
+            teardown()
             return
         }
         let frameInWindow = convert(bounds, to: window)
+        guard frameInWindow.minX.isFinite, frameInWindow.width.isFinite else {
+            teardown()
+            return
+        }
         let roundedX = frameInWindow.minX.rounded()
         if !force,
            abs(bounds.width - lastAnimatedWidth) < 0.5,
@@ -1035,6 +1180,9 @@ private struct MonochromeShimmerOverlay: UIViewRepresentable {
     func updateUIView(_ view: ShimmerTrackUIView, context: Context) {
         view.isReduceMotionEnabled = reduceMotion
         view.isDarkAppearance = isDark
+    }
+    static func dismantleUIView(_ view: ShimmerTrackUIView, coordinator: ()) {
+        view.teardown()
     }
 }
 
@@ -1180,9 +1328,13 @@ struct MarqueeText: View {
             .overlay(alignment: .leading) {
                 Text(text).font(font).lineLimit(1).fixedSize()
                     .offset(x: offset)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { textWidth = $0 }
+                    .compatibleOnGeometryChange(for: CGFloat.self) { $0.size.width } action: { nextWidth in
+                        if abs(textWidth - nextWidth) > 0.5 { textWidth = nextWidth }
+                    }
             }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { boxWidth = $0 }
+            .compatibleOnGeometryChange(for: CGFloat.self) { $0.size.width } action: { nextWidth in
+                if abs(boxWidth - nextWidth) > 0.5 { boxWidth = nextWidth }
+            }
             .clipped()
             .mask {
                 HStack(spacing: 0) {
@@ -1214,9 +1366,10 @@ extension AnyTransition {
     /// the new one fades and scales in.
     static var statusSwap: AnyTransition {
         .asymmetric(
-            insertion: .opacity.combined(with: .scale(scale: 0.92))
-                .animation(.easeOut(duration: 0.16).delay(0.08)),
-            removal: .opacity.animation(.easeIn(duration: 0.08)))
+            insertion: .opacity.combined(with: .offset(y: 4))
+                .animation(.easeOut(duration: 0.18).delay(0.06)),
+            removal: .opacity.combined(with: .offset(y: -3))
+                .animation(.easeIn(duration: 0.10)))
     }
 
     static func statusSwap(reduceMotion: Bool) -> AnyTransition {
@@ -1245,8 +1398,15 @@ extension View {
         else { onChange(of: trigger) { _ in UX.feedback() } }
     }
     @ViewBuilder func compatiblePresentationCornerRadius(_ radius: CGFloat) -> some View {
-        if #available(iOS 16.4, *) { presentationCornerRadius(radius) }
-        else { self }
+        if #available(iOS 26, *) {
+            // iOS 26 Liquid Glass floating sheets automatically compute display-concentric
+            // corner radii; overriding with a small fixed radius breaks concentricity.
+            self
+        } else if #available(iOS 16.4, *) {
+            presentationCornerRadius(radius)
+        } else {
+            self
+        }
     }
     @ViewBuilder func compatibleListSectionSpacing(_ spacing: CGFloat) -> some View {
         if #available(iOS 17, *) { listSectionSpacing(spacing) }
@@ -1269,7 +1429,9 @@ extension View {
 }
 
 /// The reveal animation needs independently animated top and bottom radii.
-/// Native continuous corners are retained on iOS 17; iOS 16 uses circular arcs.
+/// Uses UIKit continuous-corner paths directly instead of `UnevenRoundedRectangle`
+/// so builds compiled with newer iOS SDKs never emit strong `UnevenRoundedRectangle`
+/// fixups that break early iOS 16 launches.
 struct CompatibleCardShape: Shape {
     var top: CGFloat
     var bottom: CGFloat
@@ -1278,12 +1440,26 @@ struct CompatibleCardShape: Shape {
         set { top = newValue.first; bottom = newValue.second }
     }
     func path(in rect: CGRect) -> Path {
-        if #available(iOS 17, *) {
-            return UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: bottom,
-                bottomTrailingRadius: bottom, topTrailingRadius: top, style: .continuous).path(in: rect)
-        }
+        guard rect.width > 0, rect.height > 0 else { return Path() }
         let limit = max(0, min(rect.width, rect.height) / 2)
         let t = min(max(0, top), limit), b = min(max(0, bottom), limit)
+        if abs(t - b) < 0.01 {
+            return Path(UIBezierPath(roundedRect: rect, cornerRadius: t).cgPath)
+        }
+        if b < 0.01 {
+            return Path(UIBezierPath(
+                roundedRect: rect,
+                byRoundingCorners: [.topLeft, .topRight],
+                cornerRadii: CGSize(width: t, height: t)
+            ).cgPath)
+        }
+        if t < 0.01 {
+            return Path(UIBezierPath(
+                roundedRect: rect,
+                byRoundingCorners: [.bottomLeft, .bottomRight],
+                cornerRadii: CGSize(width: b, height: b)
+            ).cgPath)
+        }
         var path = Path()
         path.move(to: CGPoint(x: rect.minX + t, y: rect.minY))
         path.addLine(to: CGPoint(x: rect.maxX - t, y: rect.minY))
@@ -1303,6 +1479,16 @@ struct CompatibleCardShape: Shape {
     }
 }
 
+private struct GeometryObserver<Value: Equatable>: View {
+    let value: Value
+    let action: (Value) -> Void
+    var body: some View {
+        Color.clear
+            .onAppear { action(value) }
+            .compatibleOnChange(of: value) { next in action(next) }
+    }
+}
+
 extension ToolbarItemPlacement {
     static var compatibleTopBarLeading: Self {
         if #available(iOS 17, *) { return .topBarLeading }
@@ -1316,6 +1502,22 @@ extension ToolbarItemPlacement {
 }
 
 extension View {
+    /// Observes a derived geometry value using `GeometryReader` + `onChange`, avoiding
+    /// SwiftUI's backported `_GeometryActionModifier` strong link symbols on iOS 16
+    /// and nonisolated layout-pass callbacks on Swift 6 / iOS 27.2 beta.
+    func compatibleOnGeometryChange<T: Equatable>(
+        for type: T.Type,
+        of transform: @escaping (GeometryProxy) -> T,
+        action: @escaping (T) -> Void
+    ) -> some View {
+        background(
+            GeometryReader { proxy in
+                GeometryObserver(value: transform(proxy), action: action)
+            }
+            .allowsHitTesting(false)
+        )
+    }
+
     @ViewBuilder func compatibleOnChange<Value: Equatable>(of value: Value, perform action: @escaping (Value) -> Void) -> some View {
         if #available(iOS 17, *) { onChange(of: value) { _, newValue in action(newValue) } }
         else { onChange(of: value, perform: action) }

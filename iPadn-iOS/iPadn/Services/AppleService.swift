@@ -469,7 +469,8 @@ final class AppleService: ObservableObject {
     private func fetchAsset(appID: String, versionID: String?, account: AppleAccount,
                             platform: AppPlatform, selectedCountry: String?,
                             useCache: Bool, fallback: Bool, refreshed: Bool, purchased: Bool,
-                            allowLicenseAcquisition: Bool) async throws -> DownloadAsset {
+                            allowLicenseAcquisition: Bool,
+                            postPurchaseRetries: Int = 0) async throws -> DownloadAsset {
         guard activeID == account.id else { throw ToolError.message(AppText.text("账号已切换，请重新执行下载")) }
         let root = fallback ? "https://downloaddispatch.itunes.apple.com/up/backgroundUpdateProduct" :
             "https://downloaddispatch.itunes.apple.com/WebObjects/DownloadDispatch.woa/wa/ent/download"
@@ -510,7 +511,8 @@ final class AppleService: ObservableObject {
             return try await fetchAsset(appID: appID, versionID: versionID, account: refreshedAccount,
                 platform: platform, selectedCountry: selectedCountry,
                 useCache: useCache, fallback: fallback, refreshed: true, purchased: purchased,
-                allowLicenseAcquisition: allowLicenseAcquisition)
+                allowLicenseAcquisition: allowLicenseAcquisition,
+                postPurchaseRetries: postPurchaseRetries)
         }
         if Self.shouldAcquireLicense(failure: failure, purchased: purchased,
                                      allowLicenseAcquisition: allowLicenseAcquisition) {
@@ -523,7 +525,20 @@ final class AppleService: ObservableObject {
             return try await fetchAsset(appID: appID, versionID: versionID, account: updatedAccount,
                 platform: platform, selectedCountry: selectedCountry,
                 useCache: useCache, fallback: fallback, refreshed: refreshed, purchased: true,
-                allowLicenseAcquisition: allowLicenseAcquisition)
+                allowLicenseAcquisition: allowLicenseAcquisition,
+                postPurchaseRetries: Self.maxPostPurchaseRetries)
+        }
+        // Apple's buyProduct entitlement propagation to downloaddispatch frequently lags 0.5-2s,
+        // especially when immediately requesting a historical externalVersionId.
+        if Self.shouldRetryPostPurchase(failure: failure, purchased: purchased, retriesRemaining: postPurchaseRetries) {
+            try await Task.sleep(nanoseconds: Self.postPurchaseRetryDelayNanoseconds(retriesRemaining: postPurchaseRetries))
+            try Task.checkCancellation()
+            guard activeID == account.id else { throw ToolError.message(AppText.text("账号已切换，请重新执行下载")) }
+            return try await fetchAsset(appID: appID, versionID: versionID, account: account,
+                platform: platform, selectedCountry: selectedCountry,
+                useCache: useCache, fallback: fallback, refreshed: refreshed, purchased: true,
+                allowLicenseAcquisition: allowLicenseAcquisition,
+                postPurchaseRetries: postPurchaseRetries - 1)
         }
         // Viewing a version list never claims a license; say what is missing.
         if failure == "9610" && !allowLicenseAcquisition { throw AppleLicenseError.notOwned }
@@ -538,6 +553,16 @@ final class AppleService: ObservableObject {
             throw error
         }
         guard let song = (raw["songList"] as? [[String: Any]])?.first else {
+            if purchased && postPurchaseRetries > 0 {
+                try await Task.sleep(nanoseconds: Self.postPurchaseRetryDelayNanoseconds(retriesRemaining: postPurchaseRetries))
+                try Task.checkCancellation()
+                guard activeID == account.id else { throw ToolError.message(AppText.text("账号已切换，请重新执行下载")) }
+                return try await fetchAsset(appID: appID, versionID: versionID, account: account,
+                    platform: platform, selectedCountry: selectedCountry,
+                    useCache: useCache, fallback: fallback, refreshed: refreshed, purchased: true,
+                    allowLicenseAcquisition: allowLicenseAcquisition,
+                    postPurchaseRetries: postPurchaseRetries - 1)
+            }
             if !fallback {
                 return try await fetchAsset(appID: appID, versionID: versionID, account: account,
                     platform: platform, selectedCountry: selectedCountry,
@@ -704,6 +729,19 @@ final class AppleService: ObservableObject {
         failure == "9610" && !purchased && allowLicenseAcquisition
     }
 
+    nonisolated static let maxPostPurchaseRetries = 3
+
+    nonisolated static func shouldRetryPostPurchase(failure: String, purchased: Bool, retriesRemaining: Int) -> Bool {
+        failure == "9610" && purchased && retriesRemaining > 0
+    }
+
+    nonisolated static func postPurchaseRetryDelayNanoseconds(retriesRemaining: Int) -> UInt64 {
+        let attempt = max(0, maxPostPurchaseRetries - retriesRemaining)
+        let seconds: [Double] = [0.8, 1.5, 2.5]
+        let delay = seconds[min(attempt, seconds.count - 1)]
+        return UInt64(delay * 1_000_000_000)
+    }
+
     /// Apple failure codes that indicate an expired/unverified store session
     /// (aligned with ipatool: 2034 password token expired, 2042 sign-in
     /// required, 1008 device verification failed).
@@ -752,8 +790,9 @@ final class AppleService: ObservableObject {
     }
 
     /// Identifies Apple's `buyProductFailure` action requesting acceptance of
-    /// updated App Store Terms & Conditions (`termsPage`).
+    /// updated App Store Terms & Conditions (`termsPage`) or failure code `3038`.
     nonisolated static func isPurchaseTermsAction(_ response: [String: Any]) -> Bool {
+        if plistString(response["failureType"]) == "3038" { return true }
         guard plistString(response["jingleDocType"]) == "buyProductFailure" else { return false }
         let action = response["action"] as? [String: Any]
         guard plistString(action?["kind"]) == "Goto" else { return false }
@@ -769,6 +808,45 @@ final class AppleService: ObservableObject {
             return false
         }
         return true
+    }
+
+    /// Identifies Apple responses requiring interactive account/billing/first-time App Store
+    /// setup in the system App Store (e.g., first-time iTunes Store review `5111`, billing/payment
+    /// verification `2022`/`3002`/`5062`/`5304`, or a `buyProductFailure` `Goto` redirect to an
+    /// Apple finance/account page other than `termsPage` and `CountryMismatch`).
+    nonisolated static func isPurchaseStoreSetupAction(_ response: [String: Any]) -> Bool {
+        let code = plistString(response["failureType"])
+        if ["5111", "2022", "3002", "5062", "5304"].contains(code) {
+            return true
+        }
+        let metrics = response["metrics"] as? [String: Any]
+        let dialogID = plistString(metrics?["dialogId"]).lowercased()
+        if !dialogID.isEmpty, dialogID != "mzcommerce.countrymismatch" {
+            for keyword in ["terms", "billing", "payment", "accountreview", "firsttime", "review"] {
+                if dialogID.contains(keyword) { return true }
+            }
+        }
+        guard plistString(response["jingleDocType"]) == "buyProductFailure" else { return false }
+        let dialog = response["dialog"] as? [String: Any]
+        let actions: [[String: Any]?] = [
+            response["action"] as? [String: Any],
+            dialog?["okButtonAction"] as? [String: Any],
+        ]
+        for case let candidate? in actions {
+            guard plistString(candidate["kind"]) == "Goto" else { continue }
+            let rawURL = plistString(candidate["url"])
+            guard let components = URLComponents(string: rawURL),
+                  components.scheme?.lowercased() == "https",
+                  let host = components.host?.lowercased(),
+                  AppleAuthentication.isBuyHost(host) || host == "itunes.apple.com" || host == "apps.apple.com" || host == "finance-app.itunes.apple.com" else {
+                continue
+            }
+            if components.percentEncodedPath == "/WebObjects/MZStore.woa/wa/resetAndRedirect" {
+                continue
+            }
+            return true
+        }
+        return false
     }
 
     private func updateAccountStorefront(id: String, dsid: String,
@@ -844,6 +922,10 @@ final class AppleService: ObservableObject {
             RequestFailureLog.recordAppleFailure(response.url ?? endpoint, response: raw, stage: "buy-terms")
             throw ToolError.message(AppText.text("Apple 需要您先同意最新的 App Store 条款与条件，请先在系统 App Store 中同意后再试。"))
         }
+        if Self.isPurchaseStoreSetupAction(raw) {
+            RequestFailureLog.recordAppleFailure(response.url ?? endpoint, response: raw, stage: "buy-setup")
+            throw ToolError.message(AppText.text("Apple 需要您先在系统 App Store 中完成账号确认（如同意条款、完善付款信息或首次启用检查）。请先用该账号在系统 App Store 点击一次「获取」任意免费应用，完成后再回 iPadn 下载。"))
+        }
         // A license acquisition can independently require a new trusted-device
         // approval, even when the previous download token was accepted.
         if AppleAuthError.requiresReauthentication(raw) {
@@ -896,7 +978,8 @@ final class AppleService: ObservableObject {
     func macPackageOffer(_ app: StoreApp, versionID requested: String? = nil, useCache: Bool,
                          allowLicenseAcquisition: Bool = true, licenseAcquired: Bool = false,
                          refreshed: Bool = false,
-                         selectedCountry: String? = nil) async throws -> MacPackageOffer {
+                         selectedCountry: String? = nil,
+                         postPurchaseRetries: Int = 0) async throws -> MacPackageOffer {
         let account = try requireSignedInAccount()
         guard let appNumber = UInt64(app.id), appNumber > 0 else {
             throw ToolError.message(AppText.text("请输入有效的 Mac 应用 ID"))
@@ -960,7 +1043,8 @@ final class AppleService: ObservableObject {
                                              allowLicenseAcquisition: allowLicenseAcquisition,
                                              licenseAcquired: licenseAcquired,
                                              refreshed: true,
-                                             selectedCountry: selectedCountry)
+                                             selectedCountry: selectedCountry,
+                                             postPurchaseRetries: postPurchaseRetries)
         }
         if macFailure == "9610" && !licenseAcquired {
             guard allowLicenseAcquisition else { throw AppleLicenseError.notOwned }
@@ -971,7 +1055,18 @@ final class AppleService: ObservableObject {
             return try await macPackageOffer(app, versionID: versionID, useCache: useCache,
                                              allowLicenseAcquisition: false, licenseAcquired: true,
                                              refreshed: refreshed,
-                                             selectedCountry: selectedCountry)
+                                             selectedCountry: selectedCountry,
+                                             postPurchaseRetries: Self.maxPostPurchaseRetries)
+        }
+        if Self.shouldRetryPostPurchase(failure: macFailure, purchased: licenseAcquired, retriesRemaining: postPurchaseRetries) {
+            try await Task.sleep(nanoseconds: Self.postPurchaseRetryDelayNanoseconds(retriesRemaining: postPurchaseRetries))
+            try Task.checkCancellation()
+            guard activeID == initialID else { throw ToolError.message(AppText.text("账号已切换，请重新获取 Mac 下载信息")) }
+            return try await macPackageOffer(app, versionID: versionID, useCache: useCache,
+                                             allowLicenseAcquisition: false, licenseAcquired: true,
+                                             refreshed: refreshed,
+                                             selectedCountry: selectedCountry,
+                                             postPurchaseRetries: postPurchaseRetries - 1)
         }
         if allowLicenseAcquisition,
            let regionalError = await diagnoseStorefrontFailure(macFailure, appID: app.id, platform: .macOS,
