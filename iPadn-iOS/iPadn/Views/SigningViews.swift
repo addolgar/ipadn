@@ -106,19 +106,35 @@ struct CertificateImportView: View {
                 Button("导入") { save() }.disabled(p12 == nil || profile == nil)
             }
         }
-        .fileImporter(isPresented: $picking, allowedContentTypes: [.item]) { result in
-            guard case .success(let url) = result else { return }
+        // The same copying picker the IPA import uses; .fileImporter left the
+        // certificate files unselectable. Several files can be picked at once.
+        .sheet(isPresented: $picking) {
+            PackageDocumentPicker { result in
+                if case .success(let urls) = result { take(urls) }
+                picking = false
+            }
+            .ignoresSafeArea()
+        }
+    }
+
+    /// Sorts picked files by extension; an unknown one goes to the row that was tapped.
+    private func take(_ urls: [URL]) {
+        for url in urls {
             let access = url.startAccessingSecurityScopedResource()
-            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            defer {
+                if access { url.stopAccessingSecurityScopedResource() }
+                try? FileManager.default.removeItem(at: url)
+            }
             guard let data = try? Data(contentsOf: url), !data.isEmpty, data.count <= 4 * 1024 * 1024 else {
                 issue = AppText.text("无法读取文件")
-                return
+                continue
             }
             let picked = Picked(name: url.deletingPathExtension().lastPathComponent, data: data)
-            switch slot {
-            case .p12: p12 = picked
-            case .profile: profile = picked
-            case nil: break
+            switch url.pathExtension.lowercased() {
+            case "p12", "pfx": p12 = picked
+            case "mobileprovision", "provisionprofile": profile = picked
+            default:
+                if slot == .profile { profile = picked } else { p12 = picked }
             }
             issue = nil
         }
