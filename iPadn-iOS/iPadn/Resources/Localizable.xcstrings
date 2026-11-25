@@ -131948,6 +131948,146 @@
           }
         }
       }
+    },
+    "修复 App Group": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修复 App Group"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix App Groups"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修復 App Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Group を修復"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Group 복구"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Исправить App Groups"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reparar App Groups"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réparer les App Groups"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App-Groups reparieren"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corrigir App Groups"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إصلاح App Groups"
+          }
+        }
+      }
+    },
+    "仅为需要的应用开启：把应用的 App Group 与钥匙串重定向到证书授予的分组，让依赖共享数据的应用（如邮件客户端）在重签后仍能打开。可能需要重新登录。不需要时请关闭。": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅为需要的应用开启：把应用的 App Group 与钥匙串重定向到证书授予的分组，让依赖共享数据的应用（如邮件客户端）在重签后仍能打开。可能需要重新登录。不需要时请关闭。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on only for apps that need it: redirects the app's App Groups and keychain to the groups your certificate grants, so apps that rely on shared data (like mail clients) still open after re-signing. You may have to sign in again. Leave it off when not needed."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只為需要的 App 開啟：把 App 的 App Group 與鑰匙圈重新導向到憑證授予的分組，讓依賴共享資料的 App（如郵件用戶端）在重簽後仍能開啟。可能需要重新登入。不需要時請關閉。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必要なアプリにだけ有効にしてください。アプリの App Group とキーチェーンを証明書が付与する分組にリダイレクトし、共有データに依存するアプリ（メールクライアントなど）が再署名後も開けるようにします。再ログインが必要になる場合があります。不要なときはオフにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필요한 앱에만 켜세요. 앱의 App Group과 키체인을 인증서가 부여한 그룹으로 리디렉션해, 공유 데이터에 의존하는 앱(메일 클라이언트 등)이 재서명 후에도 열리게 합니다. 다시 로그인해야 할 수 있습니다. 필요 없으면 꺼 두세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включайте только для приложений, которым это нужно: перенаправляет App Groups и связку ключей приложения на группы, выданные вашим сертификатом, чтобы приложения с общими данными (например, почтовые клиенты) открывались после переподписи. Возможно, придётся войти снова. Отключайте, когда не нужно."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actívalo solo para las apps que lo necesiten: redirige los App Groups y el llavero de la app a los grupos que concede tu certificado, para que las apps que dependen de datos compartidos (como los clientes de correo) sigan abriéndose tras volver a firmar. Puede que tengas que iniciar sesión de nuevo. Déjalo desactivado cuando no haga falta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À activer seulement pour les apps qui en ont besoin : redirige les App Groups et le trousseau de l'app vers les groupes accordés par votre certificat, afin que les apps reposant sur des données partagées (comme les clients mail) s'ouvrent encore après re-signature. Vous devrez peut-être vous reconnecter. Laissez désactivé si inutile."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur für Apps aktivieren, die es brauchen: leitet die App-Groups und den Schlüsselbund der App auf die von deinem Zertifikat gewährten Gruppen um, damit Apps mit gemeinsamen Daten (z. B. Mail-Clients) nach dem Neusignieren weiterhin starten. Eventuell musst du dich erneut anmelden. Lass es aus, wenn nicht nötig."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ative apenas para os apps que precisam: redireciona os App Groups e o chaveiro do app para os grupos concedidos pelo seu certificado, para que apps que dependem de dados compartilhados (como clientes de e-mail) ainda abram após a reassinatura. Pode ser necessário entrar novamente. Deixe desligado quando não precisar."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعّله فقط للتطبيقات التي تحتاجه: يعيد توجيه App Groups وسلسلة المفاتيح الخاصة بالتطبيق إلى المجموعات التي تمنحها شهادتك، حتى تظل التطبيقات التي تعتمد على البيانات المشتركة (مثل عملاء البريد) تفتح بعد إعادة التوقيع. قد تحتاج إلى تسجيل الدخول من جديد. أوقفه عند عدم الحاجة."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

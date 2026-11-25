@@ -96,6 +96,7 @@ final class FairPlayService: ObservableObject {
 
         let sdkTarget = SDKVersionPatcher.configuredTarget
         let signing = SigningFiles.materialIfEnabled()
+        let fixAppGroups = UserDefaults.standard.bool(forKey: SigningFiles.fixGroupsKey)
         task = Task { [weak self] in
             let outcome: Result<FairPlayDecryptor.Outcome, Error> = await withCheckedContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
@@ -105,6 +106,7 @@ final class FairPlayService: ObservableObject {
                             allowBundleStaging: false,
                             sdkTarget: sdkTarget,
                             signing: signing,
+                            fixAppGroups: fixAppGroups,
                             isCancelled: { flag.isCancelled },
                             report: { progress in
                                 Task { @MainActor [weak self] in self?.apply(progress) }

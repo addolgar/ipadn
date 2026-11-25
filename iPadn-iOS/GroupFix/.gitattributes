@@ -1,0 +1,4 @@
+GroupFix/*.c text eol=lf
+GroupFix/*.h text eol=lf
+GroupFix/*.m text eol=lf
+scripts/*.sh text eol=lf

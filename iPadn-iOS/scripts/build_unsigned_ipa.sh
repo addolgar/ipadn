@@ -28,6 +28,10 @@ elif [ "${IPADN_REQUIRE_NATIVE:-0}" = "1" ]; then
 else
   echo 'warning: native installation library not built; native installation will be unavailable.' >&2
 fi
+# GroupFix dylib: injected into re-signed apps that need their original App
+# Groups. Bundled as a resource so the signer can copy it into the target app.
+bash "$project_root/scripts/build_groupfix.sh"
+
 xcodebuild -resolvePackageDependencies -project "$project_root/iPadn.xcodeproj" -scheme iPadn
 xcodebuild -project "$project_root/iPadn.xcodeproj" -scheme iPadn -configuration Release \
   -sdk iphoneos -destination 'generic/platform=iOS' \
@@ -39,6 +43,10 @@ if [ -d "$package_root/Payload/iPadn.app" ]; then
   rm -r "$package_root/Payload/iPadn.app"
 fi
 cp -R "$project_root/build/DerivedData/Build/Products/Release-iphoneos/iPadn.app" "$package_root/Payload/"
+# GroupFix.dylib rides along as a resource; iPadn copies it into a target app's
+# Frameworks folder and injects a load command when "fix app groups" is on.
+cp "$project_root/build/groupfix/GroupFix.dylib" "$package_root/Payload/iPadn.app/"
+cp "$project_root/build/groupfix/fishhook-BSD.txt" "$package_root/Payload/iPadn.app/"
 if [ -n "$macpkg_flags" ]; then
   # GPL-2.0 Unicorn and MIT ipatool are linked into the executable.
   cp "$project_root/build/macpkg/Unicorn-GPL-2.0.txt" "$project_root/build/macpkg/ipatool-MIT.txt" \

@@ -15,6 +15,9 @@ struct SigningCertificate: Codable, Identifiable, Equatable, Sendable {
     var debuggable: Bool
     var devices: Int
     var imported: Date
+    /// App groups the certificate grants; GroupFix maps an app's own groups to
+    /// the first of these. Optional for certificates imported before this field.
+    var appGroups: [String] = []
 }
 
 /// What a provisioning profile says about itself, read from its embedded plist.
@@ -25,6 +28,7 @@ struct ProvisioningProfileInfo: Sendable {
     var expires: Date?
     var debuggable: Bool
     var devices: Int
+    var appGroups: [String]
 
     static func parse(_ data: Data) throws -> ProvisioningProfileInfo {
         guard let start = data.range(of: Data("<?xml".utf8)),
@@ -43,7 +47,8 @@ struct ProvisioningProfileInfo: Sendable {
             teamID: (plist["TeamIdentifier"] as? [String])?.first ?? "",
             expires: plist["ExpirationDate"] as? Date,
             debuggable: entitlements["get-task-allow"] as? Bool ?? false,
-            devices: (plist["ProvisionedDevices"] as? [String])?.count ?? 0
+            devices: (plist["ProvisionedDevices"] as? [String])?.count ?? 0,
+            appGroups: entitlements["com.apple.security.application-groups"] as? [String] ?? []
         )
     }
 }
@@ -53,6 +58,7 @@ struct ProvisioningProfileInfo: Sendable {
 enum SigningFiles {
     static let enabledKey = "signing.afterDecrypt"
     static let selectedKey = "signing.certificate"
+    static let fixGroupsKey = "signing.fixAppGroups"
 
     struct Material: Sendable {
         let certificate: SigningCertificate
@@ -184,7 +190,8 @@ final class SigningCertificateStore: ObservableObject {
         }
         let certificate = SigningCertificate(
             id: id, name: name.isEmpty ? info.name : name, teamName: info.teamName, teamID: info.teamID,
-            expires: info.expires, debuggable: info.debuggable, devices: info.devices, imported: Date())
+            expires: info.expires, debuggable: info.debuggable, devices: info.devices,
+            imported: Date(), appGroups: info.appGroups)
         certificates.append(certificate)
         try SigningFiles.saveIndex(certificates)
         if selectedID == nil { selectedID = id }

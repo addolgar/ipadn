@@ -1316,6 +1316,7 @@ struct DecryptOptionsView: View {
     @AppStorage(SDKVersionPatcher.enabledKey) private var sdkPatch = false
     @AppStorage(SDKVersionPatcher.targetKey) private var sdkTarget = SDKVersionPatcher.defaultTarget
     @AppStorage(SigningFiles.enabledKey) private var signAfter = false
+    @AppStorage(SigningFiles.fixGroupsKey) private var fixGroups = false
     @ObservedObject private var certificates = SigningCertificateStore.shared
     var body: some View {
         Form {
@@ -1353,6 +1354,13 @@ struct DecryptOptionsView: View {
                 }
             } footer: {
                 Text("用你导入的证书重新签名，完成后可以直接在 iPadn 里安装；用同一张证书签名的更新会保留应用数据。需要 JIT 的应用请选择可调试的开发证书（需开启开发者模式）。")
+            }
+            if signAfter {
+                Section {
+                    Toggle("修复 App Group", isOn: $fixGroups)
+                } footer: {
+                    Text("仅为需要的应用开启：把应用的 App Group 与钥匙串重定向到证书授予的分组，让依赖共享数据的应用（如邮件客户端）在重签后仍能打开。可能需要重新登录。不需要时请关闭。")
+                }
             }
         }
         .toolPage()

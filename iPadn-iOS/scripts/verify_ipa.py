@@ -132,7 +132,10 @@ with zipfile.ZipFile(ipa) as archive:
             continue
         lower = entry.lower()
         base = os.path.basename(lower)
-        assert not lower.endswith(PROHIBITED_SECRET_EXTENSIONS), 'Prohibited secret or dynamic binary file in IPA: ' + entry
+        # GroupFix.dylib is built from tracked source (GroupFix/, BSD fishhook)
+        # and injected into re-signed apps; allow only that exact bundle path.
+        is_groupfix = base == 'groupfix.dylib' and entry.count('/') == 2 and entry.endswith('.app/GroupFix.dylib')
+        assert is_groupfix or not lower.endswith(PROHIBITED_SECRET_EXTENSIONS), 'Prohibited secret or dynamic binary file in IPA: ' + entry
         assert base not in PROHIBITED_SECRET_BASENAMES, 'Unexpected signing secret in IPA: ' + entry
         assert 'localhost-test-only' not in lower, 'Unexpected test identity in IPA: ' + entry
         if args.strict_oss:
@@ -144,6 +147,7 @@ with zipfile.ZipFile(ipa) as archive:
         prefix + 'RevealAnimations/NOTICE.txt',
         prefix + 'SAPRuntime/Go-BSD-3-Clause.txt',
         prefix + 'SAPRuntime/LGPL-2.0.txt',
+        prefix + 'fishhook-BSD.txt',
     ]:
         assert required_notice in namelist, 'Missing third-party license notice in IPA: ' + required_notice
 

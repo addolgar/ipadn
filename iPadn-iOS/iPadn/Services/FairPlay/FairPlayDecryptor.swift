@@ -131,6 +131,7 @@ enum FairPlayDecryptor {
         allowBundleStaging: Bool = false,
         sdkTarget: UInt32? = nil,
         signing: SigningFiles.Material? = nil,
+        fixAppGroups: Bool = false,
         isCancelled: () -> Bool = { false },
         report: (FairPlayProgress) -> Void = { _ in },
         log: @escaping (FairPlayLine) -> Void
@@ -359,7 +360,7 @@ enum FairPlayDecryptor {
             report(FairPlayProgress(phase: "重新打包", fraction: 0.8, detail: signing.certificate.name))
             log(FairPlayLine(kind: .phase, text: "SIGN \(signing.certificate.name)"))
             do {
-                try AppSigner.sign(appDir: appDir, with: signing) { line in
+                try AppSigner.sign(appDir: appDir, with: signing, fixAppGroups: fixAppGroups) { line in
                     log(FairPlayLine(kind: .info, text: line))
                 }
                 signedWith = signing.certificate.name
