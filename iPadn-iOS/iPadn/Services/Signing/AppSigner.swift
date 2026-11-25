@@ -46,21 +46,26 @@ enum AppSigner {
 /// the system's one-tap prompt.
 @MainActor
 enum SignedPackageInstaller {
-    static func install(_ package: URL, name: String, bundleID: String?,
+    static func install(_ package: URL, name: String, bundleID: String?, version: String?,
                         installation: InstallationService) async throws -> String {
         var identifier = bundleID ?? ""
-        if identifier.isEmpty {
-            identifier = try await Task.detached(priority: .userInitiated) {
-                try PackageInfoService.read(package).bundleID
-            }.value
+        var shortVersion = version ?? ""
+        // The one-tap manifest needs both; the package itself is the authority.
+        if identifier.isEmpty || shortVersion.isEmpty,
+           let info = try? await Task.detached(priority: .userInitiated, operation: {
+               try PackageInfoService.read(package)
+           }).value {
+            if identifier.isEmpty { identifier = info.bundleID }
+            if shortVersion.isEmpty { shortVersion = info.version }
         }
-        guard !identifier.isEmpty else { throw ToolError.message(AppText.text("安装失败")) }
+        if shortVersion.isEmpty { shortVersion = "1.0" }
+        guard !identifier.isEmpty else { throw ToolError.message(AppText.text("安装包信息不完整，无法安装")) }
 
         if NativeInstaller.hasPairingFile {
             let outcome = try await NativeInstaller.install(package: package, bundleID: identifier) { _ in }
             return outcome.upgraded ? AppText.text("已覆盖安装，原有数据保留。") : AppText.text("安装完成。")
         }
-        let job = DownloadJob(app: StoreApp(id: identifier, name: name, bundleID: identifier, version: ""),
+        let job = DownloadJob(app: StoreApp(id: identifier, name: name, bundleID: identifier, version: shortVersion),
                               status: .completed)
         let url = try await installation.automaticInstallURL(job: job, file: package)
         guard await UIApplication.shared.open(url) else { throw ToolError.message(AppText.text("安装失败")) }

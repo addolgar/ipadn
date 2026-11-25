@@ -483,7 +483,8 @@ struct DecryptDetailView: View {
             defer { installing = false }
             do {
                 installMessage = try await SignedPackageInstaller.install(
-                    output, name: record.appName, bundleID: record.bundleID, installation: store.installation)
+                    output, name: record.appName, bundleID: record.bundleID, version: record.version,
+                    installation: store.installation)
             } catch {
                 installMessage = error.localizedDescription
             }
