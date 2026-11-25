@@ -13,21 +13,30 @@ enum AppSigner {
         guard manager.fileExists(atPath: material.p12.path), manager.fileExists(atPath: material.profile.path) else {
             throw ToolError.message(AppText.text("还没有可用的签名证书"))
         }
-        // FairPlay leftovers only mean something next to Apple's own signature.
+        // Same clean-up Feather does before zsign: old signatures and profiles
+        // (zsign does not replace an existing embedded.mobileprovision), plus
+        // FairPlay leftovers that only mean something next to Apple's signature.
         var removed = 0
+        for name in ["embedded.mobileprovision", "com.apple.WatchPlaceholder", "SignedByEsign"] {
+            if (try? manager.removeItem(at: appDir.appendingPathComponent(name))) != nil { removed += 1 }
+        }
         if let walker = manager.enumerator(at: appDir, includingPropertiesForKeys: [.isDirectoryKey]) {
-            for case let url as URL in walker where url.lastPathComponent == "SC_Info" {
+            for case let url as URL in walker where ["_CodeSignature", "SC_Info"].contains(url.lastPathComponent) {
                 if (try? manager.removeItem(at: url)) != nil { removed += 1 }
                 walker.skipDescendants()
             }
         }
-        if removed > 0 { log("removed \(removed) SC_Info folder(s)") }
+        if removed > 0 { log("removed \(removed) old signature/profile item(s)") }
 
-        let ok = Zsign.sign(appPath: appDir.path,
-                            provisionPath: material.profile.path,
-                            p12Path: material.p12.path,
-                            p12Password: material.password)
-        guard ok else { throw ToolError.message(AppText.text("签名失败")) }
+        // zsign calls the completion block unconditionally: passing none crashes.
+        var succeeded = false
+        let returned = Zsign.sign(appPath: appDir.path,
+                                  provisionPath: material.profile.path,
+                                  p12Path: material.p12.path,
+                                  p12Password: material.password,
+                                  removeProvision: true,
+                                  completion: { success in succeeded = success })
+        guard returned, succeeded else { throw ToolError.message(AppText.text("签名失败")) }
         log("signed with \(material.certificate.name) (\(material.certificate.teamID))")
     }
 }
