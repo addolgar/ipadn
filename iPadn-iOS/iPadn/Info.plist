@@ -60,6 +60,7 @@
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>itms-services</string>
+		<string>localdevvpn</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

@@ -460,7 +460,10 @@ struct RootView: View {
             let added = current.subtracting(completedPackageIDs)
             completedPackageIDs = current
             guard store.settings.proMode, packages.service.autoDecryptOnComplete else { return }
-            for job in downloads.jobs where added.contains(job.id) && job.rawFormat == nil && (job.asset != nil || job.sourceURL != nil) {
+            // Patched-app updates decrypt their own downloads with each app's settings.
+            let owned = PatchedAppUpdater.shared.ownedJobIDs
+            for job in downloads.jobs where added.contains(job.id) && !owned.contains(job.id)
+                && job.rawFormat == nil && (job.asset != nil || job.sourceURL != nil) {
                 if let url = downloads.fileURL(job), packages.attempts(url: url, jobID: job.id).isEmpty {
                     packages.requestStart(url: url, job: job, automatic: true)
                 }

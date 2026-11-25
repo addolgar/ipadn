@@ -49,10 +49,30 @@ final class FairPlayService: ObservableObject {
 
     var canExport: Bool { resultURL != nil && phase != .running }
 
-    /// Starts a run; ignored while another one is in flight.
+    /// What happens after decryption: SDK raise, re-signing, App Group fix.
+    struct ProcessingOptions: Sendable {
+        var sdkTarget: UInt32?
+        var signing: SigningFiles.Material?
+        var fixAppGroups: Bool
+
+        /// The 处理选项 settings, used for every run the user starts.
+        static var current: ProcessingOptions {
+            ProcessingOptions(sdkTarget: SDKVersionPatcher.configuredTarget,
+                              signing: SigningFiles.materialIfEnabled(),
+                              fixAppGroups: UserDefaults.standard.bool(forKey: SigningFiles.fixGroupsKey))
+        }
+    }
+
+    /// Options of the run in flight, so a signed result can be remembered
+    /// with the settings that produced it.
+    private var activeOptions = ProcessingOptions(sdkTarget: nil, signing: nil, fixAppGroups: false)
+
+    /// Starts a run; ignored while another one is in flight. `options`
+    /// overrides the 处理选项 settings (patched-app updates reuse each app's own).
     func start(source: URL, displayName: String,
                appName: String? = nil, jobID: UUID? = nil,
-               origin: DecryptRecord.Origin = .manual) {
+               origin: DecryptRecord.Origin = .manual,
+               options: ProcessingOptions? = nil) {
         guard !isRunning else { return }
         reset()
         let logURL = FairPlayEnvironment.documentsDirectory.appendingPathComponent("fairplay-last.log")
@@ -94,9 +114,11 @@ final class FairPlayService: ObservableObject {
         }
         let logBuffer = LineBuffer()
 
-        let sdkTarget = SDKVersionPatcher.configuredTarget
-        let signing = SigningFiles.materialIfEnabled()
-        let fixAppGroups = UserDefaults.standard.bool(forKey: SigningFiles.fixGroupsKey)
+        let chosen = options ?? .current
+        activeOptions = chosen
+        let sdkTarget = chosen.sdkTarget
+        let signing = chosen.signing
+        let fixAppGroups = chosen.fixAppGroups
         task = Task { [weak self] in
             let outcome: Result<FairPlayDecryptor.Outcome, Error> = await withCheckedContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
@@ -246,6 +268,13 @@ final class FairPlayService: ObservableObject {
             record.failure = self.failure
             record.state = untouched ? .plain : (clean ? .finished : .failed)
             record.finishedAt = Date()
+        }
+        // A clean, re-signed result is an app the user can keep updated.
+        if clean, value.signedWith != nil,
+           let record = DecryptRecordStore.shared.records.first(where: { $0.id == id }) {
+            PatchedAppStore.shared.remember(record, sdkTarget: activeOptions.sdkTarget,
+                                            certificateID: activeOptions.signing?.certificate.id,
+                                            fixAppGroups: activeOptions.fixAppGroups)
         }
     }
 

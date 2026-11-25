@@ -99,9 +99,16 @@ enum SigningFiles {
     }
 
     static func selectedMaterial() -> Material? {
+        material(for: UserDefaults.standard.string(forKey: selectedKey).flatMap(UUID.init(uuidString:)))
+    }
+
+    /// A specific certificate, falling back to the selected one (or the first)
+    /// when it was removed. Used by patched-app updates, which re-sign with the
+    /// certificate the app was installed with so the update keeps its data.
+    static func material(for id: UUID?) -> Material? {
         let all = loadIndex()
-        let chosen = UserDefaults.standard.string(forKey: selectedKey).flatMap(UUID.init(uuidString:))
-        guard let certificate = all.first(where: { $0.id == chosen }) ?? all.first,
+        let selected = UserDefaults.standard.string(forKey: selectedKey).flatMap(UUID.init(uuidString:))
+        guard let certificate = all.first(where: { $0.id == id }) ?? all.first(where: { $0.id == selected }) ?? all.first,
               let password = loadPassword(for: certificate.id) else { return nil }
         let base = folder(for: certificate.id)
         return Material(certificate: certificate,

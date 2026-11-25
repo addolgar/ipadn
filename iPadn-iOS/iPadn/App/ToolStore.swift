@@ -2784,6 +2784,11 @@ final class ToolStore: ObservableObject {
         } else if url.scheme == "ipadn" {
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
             let items = components?.queryItems ?? []
+            // ipadn://update-patched: update every patched app (for automations).
+            if url.host == "update-patched" {
+                PatchedAppUpdater.shared.updateAll()
+                return
+            }
             if url.host == "open", let value = items.first(where: { $0.name == "tab" })?.value {
                 // Widget shortcuts: support semantic TabIDs and legacy 0..3 indices.
                 let legacyOrder: [TabID] = [.search, .downloads, .purchased, .accounts]

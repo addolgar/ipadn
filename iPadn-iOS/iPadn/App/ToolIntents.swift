@@ -114,6 +114,17 @@ struct DownloadAllUpdatesIntent: AppIntent {
     }
 }
 
+struct UpdatePatchedAppsIntent: AppIntent {
+    static var title: LocalizedStringResource = "更新已修改的应用"
+    static var description = IntentDescription("打开 iPadn，为已修改的应用下载新版本，解密、提升 SDK、签名并安装。需要时自动开关 LocalDevVPN。")
+    static var openAppWhenRun = true
+    @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {
+        // Returns at once; the run keeps going in iPadn and reports there.
+        PatchedAppUpdater.shared.updateAll()
+        return .result(dialog: "\(AppText.text("已开始更新已修改的应用"))")
+    }
+}
+
 struct DownloadStatusIntent: AppIntent {
     static var title: LocalizedStringResource = "获取下载进度"
     static var description = IntentDescription("返回正在进行和等待中的下载任务及其进度。")

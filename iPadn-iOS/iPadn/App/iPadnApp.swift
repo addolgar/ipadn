@@ -161,6 +161,12 @@ struct iPadnApp: App {
                     guard !LocalResources.isPreview, store.settings.appUpdateCheck else { return }
                     await store.checkAppUpdate()
                 }
+                .task {
+                    // Launch: the scene-phase change may come before downloads load.
+                    guard !LocalResources.isPreview else { return }
+                    await store.downloads.loaded()
+                    PatchedAppUpdater.shared.autoRunIfDue()
+                }
         }
         .onChange(of: scenePhase) { phase in
             if !LocalResources.isPreview { AppLock.shared.sceneChanged(to: phase) }
@@ -173,6 +179,7 @@ struct iPadnApp: App {
                 if !LocalResources.isPreview, store.settings.appUpdateCheck {
                     Task { await store.checkAppUpdate() }
                 }
+                if !LocalResources.isPreview { PatchedAppUpdater.shared.autoRunIfDue() }
             }
             guard phase == .background, !LocalResources.isPreview else { return }
             TemporaryExportSweeper.sweepStaleFiles(maxAge: 900)

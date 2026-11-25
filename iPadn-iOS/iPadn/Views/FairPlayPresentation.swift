@@ -217,8 +217,19 @@ final class FairPlayPresentation: ObservableObject {
         start(url: request.url, job: request.job, automatic: false)
     }
 
-    private func start(url: URL, job: DownloadJob?, automatic: Bool) {
-        guard AppContainer.shared.settings.proMode else { return }
+    /// Patched-app updates: starts a run with the app's own options, skipping
+    /// the collision prompt (a new version never shares an output name with a
+    /// file the user wants to keep). Returns the record ID, or nil when another
+    /// run is in flight or the source is gone.
+    func startForUpdate(url: URL, job: DownloadJob, options: FairPlayService.ProcessingOptions) -> UUID? {
+        guard !service.isRunning, FileManager.default.fileExists(atPath: url.path) else { return nil }
+        start(url: url, job: job, automatic: true, options: options)
+        return service.isRunning ? service.activeRecordID : nil
+    }
+
+    private func start(url: URL, job: DownloadJob?, automatic: Bool,
+                       options: FairPlayService.ProcessingOptions? = nil) {
+        guard options != nil || AppContainer.shared.settings.proMode else { return }
         guard FileManager.default.fileExists(atPath: url.path) else { message = AppText.text("原始 IPA 已不存在，请重新导入。"); return }
         let meta = localMetadata[url]
         #if canImport(TestFlightKit)
@@ -234,7 +245,10 @@ final class FairPlayPresentation: ObservableObject {
         let tfIconURL: URL? = nil
         #endif
         let name = job?.app.name ?? tfDisplayName ?? meta?.name ?? url.deletingPathExtension().lastPathComponent
-        if automatic {
+        if let options {
+            service.start(source: url, displayName: name, appName: name, jobID: job?.id,
+                          origin: .automatic, options: options)
+        } else if automatic {
             service.autoStartIfNeeded(source: url, displayName: name, appName: name, jobID: job?.id)
         } else {
             service.start(source: url, displayName: name, appName: name, jobID: job?.id,

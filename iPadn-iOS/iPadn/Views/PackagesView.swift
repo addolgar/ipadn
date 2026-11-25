@@ -1318,6 +1318,7 @@ struct DecryptOptionsView: View {
     @AppStorage(SigningFiles.enabledKey) private var signAfter = false
     @AppStorage(SigningFiles.fixGroupsKey) private var fixGroups = false
     @ObservedObject private var certificates = SigningCertificateStore.shared
+    @ObservedObject private var patched = PatchedAppStore.shared
     var body: some View {
         Form {
             Section {
@@ -1361,6 +1362,19 @@ struct DecryptOptionsView: View {
                 } footer: {
                     Text("仅为需要的应用开启：把应用的 App Group 与钥匙串重定向到证书授予的分组，让依赖共享数据的应用（如邮件客户端）在重签后仍能打开。可能需要重新登录。不需要时请关闭。")
                 }
+            }
+            Section {
+                NavigationLink {
+                    PatchedAppsView()
+                } label: {
+                    LabeledContent {
+                        Text(verbatim: "\(patched.apps.count)")
+                    } label: {
+                        Label("已修改的应用", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                }
+            } footer: {
+                Text("签名后的应用会记在这里，可以一键或自动更新。")
             }
         }
         .toolPage()
